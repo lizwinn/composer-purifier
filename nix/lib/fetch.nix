@@ -51,7 +51,12 @@ else if kind == "hg" then
 else if kind == "svn" then
   fetcher {
     inherit name;
-    inherit (source) url rev;
+    inherit (source)
+      url
+      rev
+      ignoreExternals
+      ignoreKeywords
+      ;
     inherit (artifact) hash;
   }
 else if kind == "fossil" then

@@ -16,7 +16,10 @@
 #                  hash } is a package that composer.lock gives only a
 #                  source of that kind (git, hg, svn or fossil): `path` is
 #                  <kind>/<package>, and `hash` is the hash of the checkout
-#                  that the nixpkgs fetcher of that kind checks (fetch.nix)
+#                  that the nixpkgs fetcher of that kind checks (fetch.nix).
+#                  The fetcher options of each kind are fields beside `url`
+#                  and `rev`: `submodules` for git, `subrepos` for hg, and
+#                  `ignoreExternals` and `ignoreKeywords` for svn
 #
 # Needs no nixpkgs.
 { lockFile }:

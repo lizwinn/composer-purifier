@@ -103,6 +103,8 @@ let
       args:
       assert args.url == "https://example.invalid/fixture/svn/trunk";
       assert args.rev == "7";
+      assert args.ignoreExternals == false;
+      assert args.ignoreKeywords == false;
       standInCheckout "svn";
     fetchfossil =
       args:

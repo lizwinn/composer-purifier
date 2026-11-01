@@ -121,12 +121,18 @@ function checkoutOf(string $name, string $kind, string $url, string $reference):
         case 'svn':
             // SvnDownloader checks out <url>/<reference>, and a reference is
             // a path in the repository with a peg revision: trunk/@1234.
+            // Its plain `svn co` follows externals and expands keywords.
             if (!preg_match('{^(.*)@(\d+)$}', $reference, $match)) {
                 fail("{$name} has the svn reference {$reference}, which names no revision number.");
             }
             $path = trim($match[1], '/');
 
-            return ['url' => rtrim($url, '/') . ($path === '' ? '' : '/' . $path), 'rev' => $match[2]];
+            return [
+                'url' => rtrim($url, '/') . ($path === '' ? '' : '/' . $path),
+                'rev' => $match[2],
+                'ignoreExternals' => false,
+                'ignoreKeywords' => false,
+            ];
         case 'fossil':
             return ['url' => $url, 'rev' => $reference];
     }

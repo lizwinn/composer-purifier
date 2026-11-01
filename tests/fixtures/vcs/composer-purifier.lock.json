@@ -32,7 +32,9 @@
             "path": "svn/fixture/via-svn",
             "svn": {
                 "url": "https://example.invalid/fixture/svn/trunk",
-                "rev": "7"
+                "rev": "7",
+                "ignoreExternals": false,
+                "ignoreKeywords": false
             },
             "hash": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         }
