@@ -1,6 +1,12 @@
 {
-    "version": 1,
+    "version": 2,
     "composerLock": "sha256-IqCAUMyRrCbspkh37aY633bh4os9v/OCWQQuHl37YZ4=",
+    "packages": {
+        "fixture/inner": null,
+        "fixture/outer": null,
+        "fixture/psr-clock": "git/fixture/psr-clock",
+        "fixture/psr-container": "files/fixture/psr-container/611ee7c601f6394380921265eae5da0ae1266a08.tar"
+    },
     "artifacts": [
         {
             "path": "files/fixture/psr-container/611ee7c601f6394380921265eae5da0ae1266a08.tar",

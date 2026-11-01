@@ -41,7 +41,4 @@ echo "Relocking vcs" >&2
     "$composerPurifier" lock --force --no-audit
 )
 
-# The stale lockfile of the stale-lock check is the app lockfile with
-# another composer.lock hash.
-sed 's/"composerLock": "sha256-[^"]*"/"composerLock": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="/' \
-  "$root/tests/fixtures/app/composer-purifier.lock.json" > "$root/tests/fixtures/stale-lock.json"
+"$root/tests/derive-negative-fixtures.sh"

@@ -5,6 +5,9 @@
 #
 #   version        the lock format version (lock-version.nix)
 #   composerLock   the SRI SHA-256 hash of the composer.lock it was made from
+#   packages       every package of composer.lock, by name, mapped to the
+#                  path of its entry in `artifacts`, or to null for a
+#                  package of a path repository
 #   artifacts      one entry per download, of two kinds:
 #                  a file entry { path, url, mirrors, hash } is a dist:
 #                  `path` is where the file sits in Composer's cache
@@ -55,10 +58,47 @@ let
       nonEmpty = if undotted == "" then "file" else undotted;
     in
     builtins.substring 0 200 nonEmpty;
+
+  relock = "Run `composer-purifier lock --force` to write it again.";
+  invalid = message: throw "composer-purifier: ${toString lockFile} ${message}. ${relock}";
+
+  # An entry has a path, a hash, and exactly one of `url` (a file) or a
+  # version-control kind.
+  validEntry =
+    index: artifact:
+    let
+      kinds = builtins.filter (kind: artifact ? ${kind}) ([ "url" ] ++ vcsKinds);
+    in
+    if !(builtins.isAttrs artifact && artifact ? path && artifact ? hash) then
+      invalid "has an entry without a path or a hash, at index ${toString index}"
+    else if builtins.length kinds != 1 then
+      invalid "has an entry at ${artifact.path} that is not exactly one of a file and a checkout"
+    else if artifact ? url && !(artifact ? mirrors) then
+      invalid "has a file entry at ${artifact.path} without `mirrors`"
+    else
+      true;
+
+  valid =
+    if !(builtins.isAttrs lock) then
+      invalid "holds no JSON object"
+    else if (lock.version or null) != supportedVersion then
+      throw "composer-purifier: ${toString lockFile} has lock format version ${
+        builtins.toJSON (lock.version or null)
+      }; this library reads version ${toString supportedVersion}. ${relock}"
+    else if !(builtins.isString (lock.composerLock or null)) then
+      invalid "has no valid `composerLock` field"
+    else if !(builtins.isAttrs (lock.packages or null)) then
+      invalid "has no valid `packages` field"
+    else if !(builtins.isList (lock.artifacts or null)) then
+      invalid "has no valid `artifacts` field"
+    else
+      builtins.all (x: x) (
+        builtins.genList (index: validEntry index (builtins.elemAt lock.artifacts index)) (
+          builtins.length lock.artifacts
+        )
+      );
 in
-assert
-  lock.version == supportedVersion
-  || throw "composer-purifier: ${toString lockFile} has lock format version ${toString lock.version}; this library reads version ${toString supportedVersion}. Run `composer-purifier lock` with the composer-purifier version that provides this library.";
+assert valid;
 lock
 // {
   inherit storeName vcsKinds;
@@ -80,6 +120,40 @@ lock
       value = a;
     }) lock.artifacts
   );
+
+  # True when the lockfile names an entry for every package of
+  # `composerLock` (composer.lock, as an attribute set) and for no other
+  # package, and every path it names has an entry. Otherwise it throws with
+  # the command that fixes the lockfile. checkLock of src/functions.php
+  # makes the same checks for `composer-purifier install`.
+  checkCovers =
+    composerLock:
+    let
+      locked = map (p: p.name) ((composerLock.packages or [ ]) ++ (composerLock.packages-dev or [ ]));
+      named = builtins.attrNames lock.packages;
+      missing = builtins.filter (name: !(lock.packages ? ${name})) locked;
+      extra = builtins.filter (name: !(builtins.elem name locked)) named;
+      paths = builtins.listToAttrs (
+        map (a: {
+          name = a.path;
+          value = true;
+        }) lock.artifacts
+      );
+      dangling = builtins.filter (
+        name: lock.packages.${name} != null && !(paths ? ${lock.packages.${name}})
+      ) named;
+    in
+    if missing != [ ] then
+      invalid "names no download for ${builtins.concatStringsSep ", " missing}, which composer.lock has"
+    else if extra != [ ] then
+      invalid "names ${builtins.concatStringsSep ", " extra}, which composer.lock does not have"
+    else if dangling != [ ] then
+      let
+        name = builtins.head dangling;
+      in
+      invalid "names ${lock.packages.${name}} for ${name}, but has no entry at that path"
+    else
+      true;
 
   # The fetch name of an artifact: the last two parts of its path, made a
   # valid store name. A file path is

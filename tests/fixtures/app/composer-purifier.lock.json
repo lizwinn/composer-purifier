@@ -1,6 +1,10 @@
 {
-    "version": 1,
+    "version": 2,
     "composerLock": "sha256-Pw8Pj0YjOhyIHGeLrAsA31m2C0XBzY8yIePuTXEfdLI=",
+    "packages": {
+        "monolog/monolog": "files/monolog/monolog/13f7456348238a63d970854498776d96f53cdee8.zip",
+        "psr/log": "files/psr/log/2961e31604f4f4de116b458f772c4aa21861c5b4.zip"
+    },
     "artifacts": [
         {
             "path": "files/monolog/monolog/13f7456348238a63d970854498776d96f53cdee8.zip",

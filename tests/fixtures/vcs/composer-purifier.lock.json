@@ -1,6 +1,12 @@
 {
-    "version": 1,
+    "version": 2,
     "composerLock": "sha256-vGprnCTjKNURHcJ40tZXyy2JKKHoO3kxjlqbRbYG3Xk=",
+    "packages": {
+        "fixture/via-fossil": "fossil/fixture/via-fossil",
+        "fixture/via-git": "git/fixture/via-git",
+        "fixture/via-hg": "hg/fixture/via-hg",
+        "fixture/via-svn": "svn/fixture/via-svn"
+    },
     "artifacts": [
         {
             "path": "fossil/fixture/via-fossil",

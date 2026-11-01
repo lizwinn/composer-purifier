@@ -1,6 +1,9 @@
 {
-    "version": 1,
+    "version": 2,
     "composerLock": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "packages": {
+        "fixture/mirrored": "files/fixture/mirrored/0000000000000000000000000000000000000000.zip"
+    },
     "artifacts": [
         {
             "path": "files/fixture/mirrored/0000000000000000000000000000000000000000.zip",

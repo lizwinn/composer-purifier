@@ -21,6 +21,7 @@ let
       builtins.toJSON {
         version = import ./lock-version.nix;
         composerLock = "";
+        packages = { };
         artifacts = [ ];
       }
     );

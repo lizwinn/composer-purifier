@@ -31,7 +31,8 @@
 }:
 let
   composer = php.packages.composer;
-  lockScript = ../../src/lock.php;
+  # src/lock.php and src/check.php require src/functions.php beside them.
+  scripts = ../../src;
   nixLib = ../../nix/lib;
 
   nixArguments = ''
@@ -96,13 +97,12 @@ let
             composer audit --locked
           fi
           COMPOSER_PURIFIER_PREFETCH="''${COMPOSER_PURIFIER_PREFETCH:-${lib.getExe prefetch}}" \
-            exec php ${lockScript} ${composer}/share/php/composer/vendor/autoload.php "''${lockArguments[@]}"
+            exec php ${scripts}/lock.php ${composer}/share/php/composer/vendor/autoload.php "''${lockArguments[@]}"
           ;;
         install)
-          if [ ! -f composer-purifier.lock.json ]; then
-            echo "composer-purifier: there is no composer-purifier.lock.json in $PWD. Run \`composer-purifier lock\` first." >&2
-            exit 1
-          fi
+          # Stops with the command to run when the lockfile is missing,
+          # malformed, stale or edited (src/check.php).
+          php ${scripts}/check.php
           mkdir -p .composer-purifier
           if [ -n "''${COMPOSER_PURIFIER_CACHE:-}" ] && [ -n "''${COMPOSER_PURIFIER_COMPOSER:-}" ] && [ -n "''${COMPOSER_PURIFIER_OFFLINE_LOCK:-}" ]; then
             cache="$COMPOSER_PURIFIER_CACHE"

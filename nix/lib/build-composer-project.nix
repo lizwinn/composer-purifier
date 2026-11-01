@@ -173,7 +173,8 @@ let
 in
 assert
   composerLockHash == lock.composerLock
-  || throw "composer-purifier: ${toString lockFile} was made from a different composer.lock. Run `composer-purifier lock` in ${toString src}.";
+  || throw "composer-purifier: composer.lock changed after ${toString lockFile} was written. Run `composer-purifier lock` in ${toString src}.";
+assert lock.checkCovers composerLock;
 stdenvNoCC.mkDerivation (finalAttrs: {
   inherit pname version;
   src = source;

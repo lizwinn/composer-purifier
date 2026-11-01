@@ -16,12 +16,26 @@
 #                      git, hg, svn and fossil sources, with stand-ins for
 #                      the nixpkgs fetchers that check the arguments they
 #                      get, and runs its `check` bin
-#   stale-lock         a lockfile made from a different composer.lock fails
-#                      the build at evaluation
+#   unit               the unit tests of src/functions.php
+#                      (tests/unit/functions.php)
+#   rejected-lockfiles each faulty lockfile of tests/derive-negative-fixtures.sh
+#                      fails the build of the app fixture at evaluation:
+#                      one made from a different composer.lock, malformed
+#                      ones, and ones edited to miss or add an entry
+#   tampered-hash      the fetch of an entry whose hash was edited is a
+#                      fixed-output derivation with that hash, which Nix
+#                      rejects when the download does not match; the CI
+#                      workflow builds tests/tampered-hash.nix to see the
+#                      rejection
+#   cli-rejects-stale  `composer-purifier install` stops on a lockfile made
+#                      from a different composer.lock, and says to run
+#                      `composer-purifier lock`
 #   lock-vcs           `composer-purifier lock` writes the lockfile of
 #                      tests/fixtures/vcs again, offline, with a stand-in
 #                      for the prefetch command (tests/fake-prefetch.sh),
-#                      and it matches the committed one
+#                      and it matches the committed one byte for byte
+#   relock-identical   relocking tests/fixtures/app reproduces its lockfile
+#                      byte for byte, from the hashes it already has
 #   lock-reuse         after a change to composer.lock, `composer-purifier
 #                      lock` keeps the hashes of the downloads the old
 #                      lockfile names and downloads nothing
@@ -120,15 +134,38 @@ let
     vcsFetchers = standInFetchers;
   };
 
-  # The app fixture with a lockfile made from a different composer.lock:
-  # tests/fixtures/stale-lock.json is its lockfile with another
-  # `composerLock` hash.
-  staleBuild =
-    builtins.tryEval
+  # The faulty lockfiles of tests/derive-negative-fixtures.sh, each of
+  # which the build of the app fixture has to reject at evaluation.
+  rejectedLockFiles = [
+    ./fixtures/stale-lock.json
+    ./fixtures/malformed/version-1.json
+    ./fixtures/malformed/no-packages.json
+    ./fixtures/malformed/entry-without-hash.json
+    ./fixtures/edited/missing-package.json
+    ./fixtures/edited/extra-package.json
+    ./fixtures/edited/missing-entry.json
+  ];
+  accepted =
+    lockFile:
+    (builtins.tryEval
       (buildComposerProject {
         src = ./fixtures/app;
-        lockFile = ./fixtures/stale-lock.json;
-      }).drvPath;
+        inherit lockFile;
+      }).drvPath
+    ).success;
+
+  # The monolog fetch of the app lockfile, and the same fetch of the
+  # lockfile whose monolog hash was edited.
+  monologPath = "files/monolog/monolog/13f7456348238a63d970854498776d96f53cdee8.zip";
+  fetchOf =
+    lockFile:
+    let
+      lock = import ../nix/lib/lock.nix { inherit lockFile; };
+    in
+    import ../nix/lib/fetch.nix { inherit lock; } lock.artifactsByPath.${monologPath};
+  originalFetch = fetchOf ./fixtures/app/composer-purifier.lock.json;
+  tamperedFetch = fetchOf ./fixtures/edited/tampered-hash.json;
+  tamperedLock = builtins.fromJSON (builtins.readFile ./fixtures/edited/tampered-hash.json);
 
   # The composer.lock that `composer-purifier install` reads for a fixture,
   # with its path repositories as they are on the file system.
@@ -190,9 +227,71 @@ in
     touch $out
   '';
 
-  stale-lock =
-    assert !staleBuild.success;
-    runCommand "stale-lock-check" { } "touch $out";
+  unit =
+    runCommand "unit-check"
+      {
+        nativeBuildInputs = [ app.php ];
+      }
+      ''
+        php ${./unit/functions.php} \
+          ${app.php.packages.composer}/share/php/composer/vendor/autoload.php \
+          ${../src/functions.php} \
+          ${./fixtures}
+        touch $out
+      '';
+
+  rejected-lockfiles =
+    assert accepted ./fixtures/app/composer-purifier.lock.json;
+    assert builtins.all (lockFile: !(accepted lockFile)) rejectedLockFiles;
+    runCommand "rejected-lockfiles-check" { } "touch $out";
+
+  tampered-hash =
+    assert tamperedFetch.outputHash == (builtins.head tamperedLock.artifacts).hash;
+    assert tamperedFetch.outputHash != originalFetch.outputHash;
+    assert tamperedFetch.outputHashMode == "flat";
+    runCommand "tampered-hash-check" { } "touch $out";
+
+  cli-rejects-stale =
+    runCommand "cli-rejects-stale-check"
+      {
+        nativeBuildInputs = [ command ];
+      }
+      ''
+        ${commandEnvironment}
+        cp -r ${./fixtures/app} project
+        chmod -R u+w project
+        cd project
+        echo >> composer.lock
+        if composer-purifier install 2> error; then
+          echo "install accepted a stale lockfile" >&2
+          exit 1
+        fi
+        cat error
+        grep -q 'composer.lock changed after composer-purifier.lock.json was written. Run `composer-purifier lock`.' error
+        touch $out
+      '';
+
+  relock-identical =
+    runCommand "relock-identical-check"
+      {
+        nativeBuildInputs = [
+          command
+          purified.jq
+        ];
+      }
+      ''
+        ${commandEnvironment}
+        cp -r ${./fixtures/app} project
+        chmod -R u+w project
+        cd project
+        # A lockfile that no longer matches composer.lock is written again;
+        # its hashes come from the old one, without downloads.
+        jq '.composerLock = ""' composer-purifier.lock.json > old.json
+        mv old.json composer-purifier.lock.json
+        composer-purifier lock --no-audit
+        cmp ${./fixtures/app/composer-purifier.lock.json} composer-purifier.lock.json
+        touch $out
+      '';
 
   lock-vcs = runCommand "lock-vcs-check" { nativeBuildInputs = [ command ]; } ''
     ${commandEnvironment}
