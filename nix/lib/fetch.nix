@@ -35,9 +35,12 @@ let
       or (throw "composer-purifier: ${artifact.path} is a ${kind} checkout, and fetching it needs nixpkgs' fetch${kind}.");
 in
 if kind == "git" then
+  assert
+    !source.leaveDotGit
+    || throw "composer-purifier: ${artifact.path} keeps its .git directory, which a Composer install never needs.";
   fetcher {
     inherit name;
-    inherit (source) url rev;
+    inherit (source) url rev leaveDotGit;
     fetchSubmodules = source.submodules;
     inherit (artifact) hash;
   }

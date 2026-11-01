@@ -18,7 +18,10 @@
 #                  <kind>/<package>, and `hash` is the hash of the checkout
 #                  that the nixpkgs fetcher of that kind checks (fetch.nix).
 #                  The fetcher options of each kind are fields beside `url`
-#                  and `rev`: `submodules` for git, `subrepos` for hg, and
+#                  and `rev`: `submodules`, `leaveDotGit` and `commitObject`
+#                  for git (always false, false and null, since Composer
+#                  installs a git source without submodules and the install
+#                  needs no .git directory), `subrepos` for hg, and
 #                  `ignoreExternals` and `ignoreKeywords` for svn
 #
 # Needs no nixpkgs.

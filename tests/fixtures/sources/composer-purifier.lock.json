@@ -13,7 +13,9 @@
             "git": {
                 "url": "https://github.com/php-fig/clock.git",
                 "rev": "b2eb66ddc49cb78166f16246b3c569acf82a5c16",
-                "submodules": false
+                "submodules": false,
+                "leaveDotGit": false,
+                "commitObject": null
             },
             "hash": "sha256-fRd1KrFaQj7Jc+yuwNlaEw2pXgDsJo5XlnGtDZxJPv8="
         }

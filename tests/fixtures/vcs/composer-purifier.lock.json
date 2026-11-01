@@ -15,7 +15,9 @@
             "git": {
                 "url": "https://example.invalid/fixture/git.git",
                 "rev": "0123456789abcdef0123456789abcdef01234567",
-                "submodules": false
+                "submodules": false,
+                "leaveDotGit": false,
+                "commitObject": null
             },
             "hash": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         },

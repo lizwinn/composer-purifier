@@ -92,6 +92,7 @@ let
       assert args.url == "https://example.invalid/fixture/git.git";
       assert args.rev == "0123456789abcdef0123456789abcdef01234567";
       assert args.fetchSubmodules == false;
+      assert args.leaveDotGit == false;
       standInCheckout "git";
     fetchhg =
       args:

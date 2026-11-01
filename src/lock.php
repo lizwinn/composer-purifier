@@ -114,7 +114,15 @@ function checkoutOf(string $name, string $kind, string $url, string $reference):
             // no SSH keys, so an SSH URL is recorded as the HTTPS URL of the
             // same repository; a private repository then needs a fetchgit
             // with credentials (the `vcsFetchers` of buildComposerProject).
-            return ['url' => httpsGitUrl($url), 'rev' => $reference, 'submodules' => false];
+            // The install takes the checkout as a path dist, which needs no
+            // .git directory, so there is no commit object to record.
+            return [
+                'url' => httpsGitUrl($url),
+                'rev' => $reference,
+                'submodules' => false,
+                'leaveDotGit' => false,
+                'commitObject' => null,
+            ];
         case 'hg':
             // HgDownloader runs `hg update`, which checks out subrepositories.
             return ['url' => $url, 'rev' => $reference, 'subrepos' => true];
