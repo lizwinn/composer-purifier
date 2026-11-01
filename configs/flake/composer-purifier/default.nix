@@ -16,13 +16,15 @@
       inherit (libOverlays) default;
     };
 
+    # The packages output is set below, from the derivations of the scope.
+    nixpkgs.packages.export.enabled = false;
   };
 
   # The scope `composer-purifier` is the `default` entry of the package
   # overlay registry of this flake (pkg-overlays/): the package set applies
   # it by default, and the flake exports it as `pkgOverlays` and as the
-  # plain `overlays.default`. The packages output holds the command alone,
-  # because the builder in the scope is a function.
+  # plain `overlays.default`. The packages output holds the derivations of
+  # the scope, and `default`.
   #
   # `nix run github:nix-purifiers/composer-purifier -- lock` writes
   # composer-purifier.lock.json for the Composer project in the current
@@ -32,8 +34,9 @@
   perSystem =
     { config, pkgs, ... }:
     {
-      packages.composer-purifier = pkgs.composer-purifier.composer-purifier;
-      packages.default = config.packages.composer-purifier;
+      packages = lib.filterAttrs (_: lib.isDerivation) pkgs.composer-purifier // {
+        default = config.packages.composer-purifier;
+      };
       devShells.default = pkgs.mkShell {
         packages = [
           config.packages.composer-purifier
