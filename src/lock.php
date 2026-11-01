@@ -9,32 +9,31 @@
 // --lockfile writes the lockfile at <path> rather than next to composer.lock,
 // for a project whose source does not hold it.
 //
-// The lockfile names every file that `composer install` downloads for the
-// packages of composer.lock, with the path of the file in Composer's cache
-// directory and its SHA-256 hash. Composer finds a locked dist in its cache
-// at files/<package>/<sha1 of the URL>.<dist type> (FileDownloader::download),
-// so a cache built from these entries lets `composer install` run offline.
-// `packages` maps every package of composer.lock to the path of its entry,
-// or to null for a package of a path repository. `contentHash` is the hash
-// of everything else in the file (contentHash in functions.php), so that an
-// edit by hand fails the build and `composer-purifier prefetch`.
+// The lockfile holds only the hashes that composer.lock lacks; Nix derives
+// every URL, mirror and cache path from composer.lock (nix/lib/entries.nix):
+//
+//   dists    the SRI SHA-256 hash of each dist whose `shasum` is empty in
+//            composer.lock, by its `dist.url`; a dist with a `shasum` is
+//            fetched with that hash and gets no entry
+//   sources  the hash of the checkout of each package that composer.lock
+//            gives only a git, hg, svn or fossil source, by the source URL
+//            and reference (sourceKey in functions.php)
+//
+// `contentHash` is the hash of everything else in the file (contentHash in
+// functions.php), so that an edit by hand fails the build and
+// `composer-purifier prefetch`.
 //
 // The script uses Composer as a library: it reads the locked packages the
 // way `composer install` does, computes each download URL with Composer's
 // own Url::updateDistReference, and downloads through Composer's
-// HttpDownloader, so the credentials of auth.json apply.
+// HttpDownloader, so the credentials of auth.json apply. The command that
+// COMPOSER_PURIFIER_HASH_CHECKOUT names hashes each checkout; the
+// composer-purifier package sets it to a script that runs the fetch of the
+// purifier library itself.
 //
-// A package that composer.lock gives only a version-control source (git,
-// hg, svn or fossil) gets a checkout entry instead: the repository URL, the
-// locked revision, and the hash of the checkout that the nixpkgs fetcher of
-// that kind makes. The command that COMPOSER_PURIFIER_HASH_CHECKOUT names
-// computes the hash; the composer-purifier package sets it to a script that
-// runs the fetcher itself. The Nix side installs such a package from its
-// checkout as a path dist (nix/lib/offline-lock.nix).
-//
-// A lockfile made from the same composer.lock is left as it is, unless
-// --force is given. Otherwise the hashes of downloads the old lockfile
-// already names are kept, and only new downloads are fetched.
+// A relock keeps the hashes the old lockfile has, and downloads only what
+// it lacks, so a relock of an unchanged project writes the same bytes and
+// downloads nothing. --force downloads everything again.
 
 declare(strict_types=1);
 
@@ -88,12 +87,7 @@ try {
     }
 
     $lockFile = $lockFileOption ?? dirname($composerLockFile) . '/' . LOCK_FILE;
-    $composerLockHash = sriSha256($composerLockFile);
-    $old = readOldLock($lockFile);
-    if (!$force && $old['composerLock'] === $composerLockHash) {
-        $io->writeError(LOCK_FILE . ' is up to date with composer.lock.');
-        exit(0);
-    }
+    $old = $force ? ['dists' => [], 'sources' => []] : readOldLock($lockFile);
 
     $config = $composer->getConfig();
     $loop = $composer->getLoop();
@@ -101,9 +95,10 @@ try {
     $downloadDir = sys_get_temp_dir() . '/composer-purifier-' . bin2hex(random_bytes(8));
     mkdir($downloadDir, 0700, true);
 
-    $artifacts = [];
-    $packages = [];
+    $dists = [];
+    $sources = [];
     $promises = [];
+    $downloads = 0;
     foreach ($locker->getLockedRepository(true)->getPackages() as $package) {
         if ($package instanceof AliasPackage) {
             continue;
@@ -118,47 +113,39 @@ try {
                 throw new PurifierException("{$name} has neither a dist nor a source with a URL and a reference in composer.lock.");
             }
             $checkout = checkoutOf($name, $kind, $sourceUrl, $reference);
-            $path = $kind . '/' . $package->getName();
-            $key = checkoutKey($kind, $checkout['url'], $checkout['rev']);
-            if (!isset($old['hashes'][$key])) {
+            $key = sourceKey($sourceUrl, $reference);
+            if (!isset($old['sources'][$key])) {
                 $io->writeError("Fetching {$name} ({$package->getFullPrettyVersion()}) from {$sourceUrl}");
+                $downloads++;
             }
-            $artifacts[$path] = [
-                'path' => $path,
-                $kind => $checkout,
-                'hash' => $old['hashes'][$key] ?? hashCheckout($kind, $checkout),
-            ];
-            $packages[$name] = $path;
+            $sources[$key] = $old['sources'][$key] ?? hashCheckout($kind, $checkout);
             continue;
         }
         // A path package is installed from the project's own files.
         if ($type === 'path') {
-            $packages[$name] = null;
             continue;
         }
         if (!in_array($type, CACHED_DIST_TYPES, true)) {
             throw new PurifierException("{$name} has a dist of type {$type}, which Composer does not keep in its files cache.");
         }
-
-        $urls = distUrls($config, $package);
-        $url = $urls[0];
-        $mirrors = array_slice($urls, 1);
-        $path = cachePathFor($package->getName(), $url, $type);
-        $packages[$name] = $path;
-        if (isset($old['hashes'][$url])) {
-            $artifacts[$path] = ['path' => $path, 'url' => $url, 'mirrors' => $mirrors, 'hash' => $old['hashes'][$url]];
+        // Nix fetches a dist with a shasum by that SHA-1 hash.
+        $sha1 = $package->getDistSha1Checksum();
+        if ($sha1 !== null && $sha1 !== '') {
             continue;
         }
 
+        $key = (string) $package->getDistUrl();
+        if (isset($old['dists'][$key])) {
+            $dists[$key] = $old['dists'][$key];
+            continue;
+        }
+        $url = distUrls($config, $package)[0];
         $target = $downloadDir . '/' . count($promises);
         $io->writeError("Downloading {$name} ({$package->getFullPrettyVersion()})");
+        $downloads++;
         $promises[] = $downloader->addCopy($url, $target, $package->getTransportOptions())->then(
-            function () use (&$artifacts, $package, $name, $url, $mirrors, $path, $target): void {
-                $sha1 = $package->getDistSha1Checksum();
-                if ($sha1 !== null && $sha1 !== '' && hash_file('sha1', $target) !== $sha1) {
-                    throw new PurifierException("the dist of {$name} from {$url} does not match the shasum in composer.lock.");
-                }
-                $artifacts[$path] = ['path' => $path, 'url' => $url, 'mirrors' => $mirrors, 'hash' => sriSha256($target)];
+            function () use (&$dists, $key, $target): void {
+                $dists[$key] = sriSha256($target);
                 unlink($target);
             }
         );
@@ -166,18 +153,22 @@ try {
     $loop->wait($promises);
     rmdir($downloadDir);
 
-    ksort($artifacts);
-    ksort($packages);
+    ksort($dists, SORT_STRING);
+    ksort($sources, SORT_STRING);
     $lock = [
         'version' => FORMAT_VERSION,
-        'composerLock' => $composerLockHash,
-        // An object even when it is empty, so that Nix reads an attribute set.
-        'packages' => (object) $packages,
-        'artifacts' => array_values($artifacts),
+        // Objects even when they are empty, so that Nix reads attribute sets.
+        'dists' => (object) $dists,
+        'sources' => (object) $sources,
     ];
     $lock['contentHash'] = contentHash($lock);
-    file_put_contents($lockFile, json_encode($lock, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
-    $io->writeError('Wrote ' . LOCK_FILE . ' with ' . count($artifacts) . ' downloads.');
+    $text = json_encode($lock, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    if (is_file($lockFile) && file_get_contents($lockFile) === $text) {
+        $io->writeError(LOCK_FILE . ' is up to date with composer.lock.');
+        exit(0);
+    }
+    file_put_contents($lockFile, $text);
+    $io->writeError('Wrote ' . LOCK_FILE . ", after {$downloads} downloads.");
 } catch (PurifierException $e) {
     fwrite(STDERR, "composer-purifier: {$e->getMessage()}\n");
     exit(1);

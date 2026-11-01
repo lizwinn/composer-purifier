@@ -1,7 +1,7 @@
 # What the `composer-purifier` command builds, with nixpkgs and the purifier
 # library from the composer-purifier package that runs the command:
 #
-#   cache        the Composer cache of the project's lockfile (cache.nix)
+#   cache        the Composer cache of the project (cache.nix)
 #   composer     Composer on the PHP that the project requires with its
 #                require-dev packages (php.nix)
 #   offlineLock  the composer.lock that the composer of this package reads
@@ -30,14 +30,22 @@ let
   library = import (/. + purifier) { inherit (pkgs) lib; };
   dir = /. + projectDir;
   lockPath = if lockFile == "" then dir + "/composer-purifier.lock.json" else /. + lockFile;
-  composerLock = builtins.fromJSON (builtins.readFile (dir + "/composer.lock"));
+  locked = library.checkLock (
+    import ./read-lock.nix { inherit (pkgs) lib; } {
+      src = dir;
+      lockFile = lockPath;
+    }
+  );
   php = pkgs.callPackage ./php.nix {
-    composerJson = builtins.fromJSON (builtins.readFile (dir + "/composer.json"));
-    inherit composerLock;
+    inherit (locked) composerJson;
+    composerLock = locked.lockedPackages;
     dev = true;
   };
   cache = pkgs.callPackage ./cache.nix {
-    lockFile = lockPath;
+    entries = {
+      entries = library.entriesFor system locked;
+      inherit (locked) byName;
+    };
     purifier = library;
   };
   build = import ./build-composer-project.nix {
@@ -49,8 +57,8 @@ in
   inherit cache;
   composer = php.packages.composer;
   offlineLock = pkgs.callPackage ./offline-lock.nix {
-    inherit composerLock;
-    inherit (cache) lock fetch;
+    composerLock = locked.lockedPackages;
+    inherit (cache) entries fetch;
     rewritePaths = false;
   };
   release =

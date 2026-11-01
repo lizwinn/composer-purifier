@@ -109,28 +109,33 @@ same('https://api.github.com/repos/vendor/pkg/zipball/0123456789abcdef0123456789
 same(2, count($urls), 'distUrls holds the dist URL and its mirror');
 same(true, str_starts_with($urls[1] ?? '', 'https://mirror.example.invalid/vendor/pkg/'), 'distUrls fills the placeholders of a mirror');
 
-// An old lockfile gives its hashes by download key.
+// An old lockfile gives its hashes by key.
 $old = readOldLock("{$fixtures}/sources/composer-purifier.lock.json");
-same('sha256-fRd1KrFaQj7Jc+yuwNlaEw2pXgDsJo5XlnGtDZxJPv8=', $old['hashes'][checkoutKey('git', 'https://github.com/php-fig/clock.git', 'b2eb66ddc49cb78166f16246b3c569acf82a5c16')] ?? null, 'readOldLock keys a checkout by kind, URL and revision');
-same(['composerLock' => null, 'hashes' => []], readOldLock("{$fixtures}/malformed/version-1.json"), 'readOldLock ignores another format version');
+same(true, str_starts_with($old['sources'][sourceKey('https://github.com/php-fig/clock.git', 'b2eb66ddc49cb78166f16246b3c569acf82a5c16')] ?? '', 'sha256-'), 'readOldLock keys a checkout by source URL and reference');
+same(['dists' => [], 'sources' => []], readOldLock("{$fixtures}/malformed/version-3.json"), 'readOldLock ignores another format version');
+
+// What a package of composer.lock needs from the lockfile.
+same(null, neededHash(['name' => 'a/b', 'dist' => ['type' => 'zip', 'url' => 'https://x/a.zip', 'shasum' => 'f00']]), 'neededHash of a dist with a shasum');
+same(['dists', 'https://x/a.zip', 'the dist of a/b at https://x/a.zip'], neededHash(['name' => 'a/b', 'dist' => ['type' => 'zip', 'url' => 'https://x/a.zip', 'shasum' => '']]), 'neededHash of a dist without a shasum');
+same(null, neededHash(['name' => 'a/b', 'dist' => ['type' => 'path', 'url' => '../b']]), 'neededHash of a path dist');
+same(['sources', 'https://x/b.git#abc', 'the git checkout of a/b at https://x/b.git#abc'], neededHash(['name' => 'a/b', 'source' => ['type' => 'git', 'url' => 'https://x/b.git', 'reference' => 'abc']]), 'neededHash of a git source');
+throwsWith('no anonymous protocol', fn () => neededHash(['name' => 'a/b', 'source' => ['type' => 'perforce', 'url' => '//depot', 'reference' => 'abc']]), 'neededHash of a perforce source');
 
 // The lockfile check.
 $composerLock = (string) file_get_contents("{$fixtures}/app/composer.lock");
 $lock = (string) file_get_contents("{$fixtures}/app/composer-purifier.lock.json");
 checkLock($lock, $composerLock);
-throwsWith('composer.lock changed', fn () => checkLock($lock, $composerLock . "\n"), 'checkLock of a stale lockfile');
+throwsWith('has no hash for the dist of monolog/monolog', fn () => checkLock($lock, (string) file_get_contents("{$fixtures}/stale/composer.lock")), 'checkLock against a composer.lock that changed after the lock');
 throwsWith('was edited after `composer-purifier lock` wrote it', fn () => checkLock((string) file_get_contents("{$fixtures}/edited/tampered-hash.json"), $composerLock), 'checkLock of a lockfile with an edited hash');
+throwsWith('has no hash for the dist of psr/log', fn () => checkLock((string) file_get_contents("{$fixtures}/edited/missing-dist.json"), $composerLock), 'checkLock of a lockfile without a hash');
 
 // The content hash: canonical JSON as builtins.toJSON writes it.
 same('{"a":[],"b":{},"c":null,"d":"x/y","e":[1,true]}', canonicalJson(['e' => [1, true], 'd' => 'x/y', 'c' => null, 'b' => new \stdClass(), 'a' => []]), 'canonicalJson sorts keys and keeps empty objects and lists');
 same(json_decode($lock, true)['contentHash'], contentHash(json_decode($lock, false)), 'contentHash of the app lockfile');
-throwsWith('is not valid JSON', fn () => checkLock('{"version": 2,', $composerLock), 'checkLock of a lockfile that is not JSON');
-throwsWith('lock format version 1', fn () => checkLock((string) file_get_contents("{$fixtures}/malformed/version-1.json"), $composerLock), 'checkLock of another format version');
-throwsWith('without a path or a hash', fn () => checkLock((string) file_get_contents("{$fixtures}/malformed/entry-without-hash.json"), $composerLock), 'checkLock of an entry without a hash');
-throwsWith('no valid `packages` field', fn () => checkLock((string) file_get_contents("{$fixtures}/malformed/no-packages.json"), $composerLock), 'checkLock of a lockfile without packages');
-throwsWith('names no download for psr/log', fn () => checkLock((string) file_get_contents("{$fixtures}/edited/missing-package.json"), $composerLock), 'checkLock of a lockfile without a package');
-throwsWith('which composer.lock does not have', fn () => checkLock((string) file_get_contents("{$fixtures}/edited/extra-package.json"), $composerLock), 'checkLock of a lockfile with an extra package');
-throwsWith('but has no entry at that path', fn () => checkLock((string) file_get_contents("{$fixtures}/edited/missing-entry.json"), $composerLock), 'checkLock of a lockfile without an entry');
+throwsWith('is not valid JSON', fn () => checkLock('{"version": 4,', $composerLock), 'checkLock of a lockfile that is not JSON');
+throwsWith('lock format version 3', fn () => checkLock((string) file_get_contents("{$fixtures}/malformed/version-3.json"), $composerLock), 'checkLock of another format version');
+throwsWith('no valid `dists` field', fn () => checkLock((string) file_get_contents("{$fixtures}/malformed/no-dists.json"), $composerLock), 'checkLock of a lockfile without dists');
+throwsWith('no valid `dists` field', fn () => checkLock((string) file_get_contents("{$fixtures}/malformed/dist-hash-not-text.json"), $composerLock), 'checkLock of a dist hash that is not a string');
 
 if ($failures > 0) {
     echo "{$failures} assertions failed\n";

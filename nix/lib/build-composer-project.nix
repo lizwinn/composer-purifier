@@ -25,7 +25,10 @@
 #   release          the dist archive that `composer archive` makes,
 #                    <name>-<version>.zip, which `composer-purifier publish`
 #                    copies into an artifact repository
-#   fetches          the entries of the lockfile, which the builds fetch
+#   fetches          the entries of the lock in memory (read-lock.nix): the
+#                    downloads of the purifier library that the builds
+#                    fetch, derived from composer.lock and the hashes of
+#                    the lockfile
 #   cache            the Composer cache of the lockfile (cache.nix)
 #   php              the PHP of the packages, with the extensions the
 #                    project requires (php.nix)
@@ -64,17 +67,18 @@
   srcFilter ? null,
 }:
 let
-  lock = import ./lock.nix { inherit lockFile; };
-  cache = pkgs.callPackage ./cache.nix { inherit lockFile fetchers purifier; };
+  # The lock in memory (read-lock.nix), which checkLock of the purifier
+  # library fails on when it has problems.
+  locked = purifier.checkLock (
+    import ./read-lock.nix { inherit lib; } { inherit src lockFile composerLock; }
+  );
+  inherit (locked) composerJson lockedPackages;
 
-  composerJson = builtins.fromJSON (builtins.readFile (src + "/composer.json"));
-  lockedPackages = builtins.fromJSON (builtins.readFile composerLock);
-
-  composerLockHash = builtins.convertHash {
-    hash = builtins.hashFile "sha256" composerLock;
-    hashAlgo = "sha256";
-    toHashFormat = "sri";
+  entries = {
+    entries = purifier.entriesFor pkgs.stdenv.hostPlatform.system locked;
+    inherit (locked) byName;
   };
+  cache = pkgs.callPackage ./cache.nix { inherit entries fetchers purifier; };
 
   phpOf =
     withDev:
@@ -88,9 +92,9 @@ let
       };
 
   offlineLock = pkgs.callPackage ./offline-lock.nix {
-    inherit pathRepositories;
+    inherit pathRepositories entries;
     composerLock = lockedPackages;
-    inherit (cache) lock fetch;
+    inherit (cache) fetch;
     rewritePaths = true;
   };
 
@@ -114,9 +118,7 @@ let
   '';
 
   # `vendor/name` becomes the package name `vendor-name`.
-  pname = lock.storeName (
-    builtins.replaceStrings [ "/" ] [ "-" ] (composerJson.name or (baseNameOf (toString src)))
-  );
+  pname = import ./package-name.nix { inherit composerJson src; };
   version = composerJson.version or "0";
 
   defaultSrcFilter =
@@ -253,10 +255,6 @@ let
       throw "composer-purifier: the composer.json of ${toString src} has no `test` script, which `tests` runs. Add one to its `scripts`, such as \"test\": \"phpunit\".";
 in
 assert
-  composerLockHash == lock.composerLock
-  || throw "composer-purifier: composer.lock changed after ${toString lockFile} was written. Run `composer-purifier lock` for ${toString src}.";
-assert lock.checkCovers lockedPackages;
-assert
   !(binPackages ? ${pname})
   || throw "composer-purifier: the bin ${pname} of ${toString src} has the name of the project, so `packages` cannot hold both.";
 {
@@ -269,6 +267,6 @@ assert
     release
     cache
     ;
-  fetches = lock.artifacts;
+  fetches = locked.entries;
   php = installed.php;
 }

@@ -1,51 +1,11 @@
 {
-    "version": 3,
-    "composerLock": "sha256-vGprnCTjKNURHcJ40tZXyy2JKKHoO3kxjlqbRbYG3Xk=",
-    "packages": {
-        "fixture/via-fossil": "fossil/fixture/via-fossil",
-        "fixture/via-git": "git/fixture/via-git",
-        "fixture/via-hg": "hg/fixture/via-hg",
-        "fixture/via-svn": "svn/fixture/via-svn"
+    "version": 4,
+    "dists": {},
+    "sources": {
+        "https://example.invalid/fixture/fossil#fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "https://example.invalid/fixture/git.git#0123456789abcdef0123456789abcdef01234567": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "https://example.invalid/fixture/hg#89abcdef0123456789abcdef0123456789abcdef": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "https://example.invalid/fixture/svn#/trunk/@7": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     },
-    "artifacts": [
-        {
-            "path": "fossil/fixture/via-fossil",
-            "fossil": {
-                "url": "https://example.invalid/fixture/fossil",
-                "rev": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
-            },
-            "hash": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-        },
-        {
-            "path": "git/fixture/via-git",
-            "git": {
-                "url": "https://example.invalid/fixture/git.git",
-                "rev": "0123456789abcdef0123456789abcdef01234567",
-                "submodules": false,
-                "leaveDotGit": false,
-                "commitObject": null
-            },
-            "hash": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-        },
-        {
-            "path": "hg/fixture/via-hg",
-            "hg": {
-                "url": "https://example.invalid/fixture/hg",
-                "rev": "89abcdef0123456789abcdef0123456789abcdef",
-                "subrepos": true
-            },
-            "hash": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-        },
-        {
-            "path": "svn/fixture/via-svn",
-            "svn": {
-                "url": "https://example.invalid/fixture/svn/trunk",
-                "rev": "7",
-                "ignoreExternals": false,
-                "ignoreKeywords": false
-            },
-            "hash": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-        }
-    ],
-    "contentHash": "sha256-NkguKmLQLz4EDnogHYEvKY4sILtGuyuTsznoqvuzmAU="
+    "contentHash": "sha256-IPPUqY2mBqnlAWcMJv3FN3FojQ4aaRSbmaQoOFrgBZo="
 }

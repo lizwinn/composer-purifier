@@ -1,30 +1,10 @@
 {
-    "version": 3,
-    "composerLock": "sha256-IqCAUMyRrCbspkh37aY633bh4os9v/OCWQQuHl37YZ4=",
-    "packages": {
-        "fixture/inner": null,
-        "fixture/outer": null,
-        "fixture/psr-clock": "git/fixture/psr-clock",
-        "fixture/psr-container": "files/fixture/psr-container/611ee7c601f6394380921265eae5da0ae1266a08.tar"
+    "version": 4,
+    "dists": {
+        "https://github.com/php-fig/container/archive/refs/tags/2.0.2.tar.gz": "sha256-gXSTNsDjZ5oyXCHTB0koNIG9cw2hbePepmkESnlbcO4="
     },
-    "artifacts": [
-        {
-            "path": "files/fixture/psr-container/611ee7c601f6394380921265eae5da0ae1266a08.tar",
-            "url": "https://github.com/php-fig/container/archive/refs/tags/2.0.2.tar.gz",
-            "mirrors": [],
-            "hash": "sha256-gXSTNsDjZ5oyXCHTB0koNIG9cw2hbePepmkESnlbcO4="
-        },
-        {
-            "path": "git/fixture/psr-clock",
-            "git": {
-                "url": "https://github.com/php-fig/clock.git",
-                "rev": "b2eb66ddc49cb78166f16246b3c569acf82a5c16",
-                "submodules": false,
-                "leaveDotGit": false,
-                "commitObject": null
-            },
-            "hash": "sha256-fRd1KrFaQj7Jc+yuwNlaEw2pXgDsJo5XlnGtDZxJPv8="
-        }
-    ],
-    "contentHash": "sha256-oA67kqtytnQjUldwBCi14j+hoIQ+mI4euez7+vhP5tQ="
+    "sources": {
+        "https://github.com/php-fig/clock.git#b2eb66ddc49cb78166f16246b3c569acf82a5c16": "sha256-fRd1KrFaQj7Jc+yuwNlaEw2pXgDsJo5XlnGtDZxJPv8="
+    },
+    "contentHash": "sha256-mQ+ST1ZSwMggK6K9p91Q9V5cn89XP9jzR/rsKmmj/Tg="
 }

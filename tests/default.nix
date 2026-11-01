@@ -6,19 +6,21 @@
 # The checks of the purifier contract (CONTRACT.md of
 # github:nix-purifiers/purifier):
 #
-#   conformance-stale      a lockfile made from a different composer.lock
-#                          fails evaluation and `composer-purifier prefetch`,
-#                          and a composer.lock changed after a prefetch stops
-#                          the offline `composer install`; each names
+#   conformance-stale      a lockfile older than the composer.lock of
+#                          tests/fixtures/stale, where monolog moved to
+#                          another dist, fails evaluation and
+#                          `composer-purifier prefetch`, and a composer.lock
+#                          that changes after a prefetch stops the offline
+#                          `composer install`; each names
 #                          `composer-purifier lock`
 #   conformance-tampered   a lockfile with an edited hash fails evaluation
 #                          and `prefetch`, naming `composer-purifier lock
-#                          --force`; the fetch of the edited entry checks
-#                          the edited hash, and the CI workflow builds it
+#                          --force`; the fetch of the entry checks the
+#                          edited hash, and the CI workflow builds it
 #                          (tests/tampered-hash.nix) to see Nix reject it
-#   conformance-missing    lockfiles without an entry that composer.lock
-#                          needs fail evaluation and `prefetch`, naming
-#                          `composer-purifier lock --force`
+#   conformance-missing    a lockfile without the hash of a dist that
+#                          composer.lock needs fails evaluation and
+#                          `prefetch`, naming `composer-purifier lock`
 #   conformance-malformed  lockfiles that are not valid fail evaluation and
 #                          `prefetch`, naming `composer-purifier lock --force`
 #   conformance-relock     relocking tests/fixtures/app, from the hashes it
@@ -56,23 +58,33 @@
 #                          script in the sandbox
 #   unit                   the unit tests of src/functions.php
 #                          (tests/unit/functions.php)
-#   lock-reuse             after a change to composer.lock, `lock` keeps the
-#                          hashes of the downloads the old lockfile names
-#                          and downloads nothing
+#   lock-reuse             a composer.lock with the same packages keeps the
+#                          lockfile byte for byte, and its relock downloads
+#                          nothing
+#   urls                   the URLs and cache paths that Composer computes
+#                          (tests/unit/urls.php) are the ones that
+#                          nix/lib/entries.nix derives, for the fixtures
+#                          with dists and for composer/composer
+#   read-lock              `lib.composer-purifier.readLock` gives the lock in
+#                          memory of the contract, with its problems for a
+#                          stale composer.lock
 #   outputs                `packages`, `release`, `fetches` and `tests` of
 #                          the fixtures are known at evaluation time and
 #                          name the right outputs
 #   release                the release of tests/fixtures/app is a zip of
 #                          the project without its vendor directory
-#   mirrors                the fetch of a file entry with mirrors
-#                          (tests/fixtures/mirrors-lock.json) tries its URL
-#                          and then its mirrors, with nixpkgs' fetchurl and
-#                          with a `fetchurl` in its place
+#   mirrors                the entry of a package with a mirror and a
+#                          shasum has the URL, then the mirror with its
+#                          placeholders filled in, and the SHA-1 of the
+#                          shasum; its fetch tries both, with nixpkgs'
+#                          fetchurl and with a `fetchurl` in its place
 {
   pkgs,
   overlay,
   # lib.composer-purifier.buildComposerProject of this flake.
   buildComposerProject,
+  # lib.composer-purifier.readLock of this flake.
+  readLock,
   # The `purifier` library namespace (lib.purifier of
   # github:nix-purifiers/purifier).
   purifier,
@@ -175,30 +187,29 @@ let
     composerLock = ./external/app/composer.lock;
   };
 
-  # Whether the app fixture evaluates with a lockfile.
-  accepted =
-    lockFile:
+  # Whether the app fixture evaluates with a lockfile, and with a
+  # composer.lock.
+  acceptedWith =
+    arguments:
     (builtins.tryEval
-      (build {
-        src = ./fixtures/app;
-        inherit lockFile;
-      }).packages.composer-purifier-fixture-app.drvPath
+      (build ({ src = ./fixtures/app; } // arguments)).packages.composer-purifier-fixture-app.drvPath
     ).success;
+  accepted = lockFile: acceptedWith { inherit lockFile; };
 
-  # The monolog fetch of the app lockfile, and the same fetch of the
-  # lockfile whose monolog hash was edited.
-  monologPath = "files/monolog/monolog/13f7456348238a63d970854498776d96f53cdee8.zip";
-  entryOf =
-    lockFile:
+  # The monolog entry of the app fixture, and the same entry with the hash
+  # of tests/fixtures/edited/tampered-hash.json, whose content hash
+  # rejects it before any fetch.
+  monologEntry = app.cache.entries.byName."monolog/monolog";
+  tamperedHash =
+    (builtins.fromJSON (builtins.readFile ./fixtures/edited/tampered-hash.json))
+    .dists.${monologDistUrl};
+  monologDistUrl =
     (builtins.head (
-      builtins.filter (a: a.path == monologPath)
-        (builtins.fromJSON (builtins.readFile lockFile)).artifacts
-    ));
-  originalFetch = purifier.fetchEntry { pkgs = purified; } (
-    entryOf ./fixtures/app/composer-purifier.lock.json
-  );
-  tamperedEntry = entryOf ./fixtures/edited/tampered-hash.json;
-  tamperedFetch = purifier.fetchEntry { pkgs = purified; } tamperedEntry;
+      builtins.filter (p: p.name == "monolog/monolog")
+        (builtins.fromJSON (builtins.readFile ./fixtures/app/composer.lock)).packages
+    )).dist.url;
+  originalFetch = purifier.fetchEntry { pkgs = purified; } monologEntry;
+  tamperedFetch = purifier.fetchEntry { pkgs = purified; } (monologEntry // { hash = tamperedHash; });
 
   # What `composer-purifier prefetch` links for a fixture, in place of the
   # nix-build it runs outside the sandbox.
@@ -207,22 +218,65 @@ let
     COMPOSER_PURIFIER_COMPOSER = package.php.packages.composer;
     COMPOSER_PURIFIER_OFFLINE_LOCK = purified.callPackage ../nix/lib/offline-lock.nix {
       composerLock = builtins.fromJSON (builtins.readFile (src + "/composer.lock"));
-      inherit (package.cache) lock fetch;
+      inherit (package.cache) entries fetch;
       rewritePaths = false;
     };
   };
 
-  mirroredLockFile = ./fixtures/mirrors-lock.json;
-  mirrored = builtins.head (builtins.fromJSON (builtins.readFile mirroredLockFile)).artifacts;
+  # A package of composer.lock with a mirror and a shasum: its entry has
+  # the URL, then the mirror with its placeholders filled in, and the
+  # SHA-1 of the shasum. The lockfile holds no hash for it.
+  mirrored =
+    (import ../nix/lib/entries.nix {
+      inherit lib;
+      composerJson = { };
+      lock = {
+        dists = { };
+        sources = { };
+        file = "composer-purifier.lock.json";
+      };
+      composerLock.packages = [
+        {
+          name = "fixture/mirrored";
+          version = "1.0.0";
+          version_normalized = "1.0.0.0";
+          dist = {
+            type = "zip";
+            url = "https://example.invalid/dists/fixture-mirrored.zip";
+            reference = "0123456789abcdef0123456789abcdef01234567";
+            shasum = "da39a3ee5e6b4b0d3255bfef95601890afd80709";
+            mirrors = [
+              {
+                url = "https://mirror.example.invalid/%package%/%version%/%reference%.%type%";
+                preferred = false;
+              }
+            ];
+          };
+        }
+      ];
+    }).byName."fixture/mirrored";
   mirroredUrls = [
     "https://example.invalid/dists/fixture-mirrored.zip"
-    "https://mirror.example.invalid/dists/fixture-mirrored.zip"
+    "https://mirror.example.invalid/fixture/mirrored/1.0.0.0/0123456789abcdef0123456789abcdef01234567.zip"
   ];
   nixpkgsFetch = purifier.fetchEntry { pkgs = purified; } mirrored;
   overriddenFetch = purifier.fetchEntry {
     pkgs = purified;
     fetchurl = args: args;
   } mirrored;
+
+  # The URLs and cache path of each dist, as nix/lib/entries.nix derives
+  # them, in the canonical JSON of tests/unit/urls.php.
+  derivedUrls =
+    package:
+    purified.writeText "derived-urls.json" (
+      builtins.toJSON (
+        lib.mapAttrs (name: entry: {
+          inherit (entry) path;
+          urls = [ entry.url ] ++ entry.mirrors;
+        }) (lib.filterAttrs (name: entry: entry ? url) package.cache.entries.byName)
+      )
+    );
 
   commandEnvironment = ''
     export HOME="$TMPDIR/home"
@@ -252,19 +306,24 @@ let
   '';
 in
 {
+  # tests/fixtures/stale/composer.lock is the composer.lock of the app
+  # fixture after an update that its lockfile has not seen.
   conformance-stale =
-    assert !(accepted ./fixtures/stale-lock.json);
+    assert !(acceptedWith { composerLock = ./fixtures/stale/composer.lock; });
     runCommand "conformance-stale-check"
       ({ nativeBuildInputs = [ command ]; } // prefetched app ./fixtures/app)
       ''
         ${commandEnvironment}
         ${appProject}
         ${prefetchFails}
-        prefetchFails ${./fixtures/stale-lock.json} 'Run `composer-purifier lock`.'
+        cp ${./fixtures/stale/composer.lock} composer.lock
+        prefetchFails composer-purifier.lock.json 'has no hash for the dist of monolog/monolog'
+        grep -qF 'Run `composer-purifier lock`.' error
         # A composer.lock that changes after a prefetch stops the offline
         # install, which names both commands.
+        cp ${./fixtures/app/composer.lock} composer.lock
         composer-purifier prefetch
-        echo >> composer.lock
+        cp ${./fixtures/stale/composer.lock} composer.lock
         if composer install 2> error; then
           echo "composer install ran on a stale lockfile" >&2
           exit 1
@@ -277,7 +336,7 @@ in
 
   conformance-tampered =
     assert !(accepted ./fixtures/edited/tampered-hash.json);
-    assert tamperedFetch.outputHash == tamperedEntry.hash;
+    assert tamperedFetch.outputHash == tamperedHash;
     assert tamperedFetch.outputHash != originalFetch.outputHash;
     runCommand "conformance-tampered-check" { nativeBuildInputs = [ command ]; } ''
       ${commandEnvironment}
@@ -289,38 +348,31 @@ in
     '';
 
   conformance-missing =
-    assert
-      !(builtins.any accepted [
-        ./fixtures/edited/missing-package.json
-        ./fixtures/edited/missing-entry.json
-        ./fixtures/edited/extra-package.json
-      ]);
+    assert !(accepted ./fixtures/edited/missing-dist.json);
     runCommand "conformance-missing-check" { nativeBuildInputs = [ command ]; } ''
       ${commandEnvironment}
       ${appProject}
       ${prefetchFails}
-      prefetchFails ${./fixtures/edited/missing-package.json} 'names no download for psr/log'
-      prefetchFails ${./fixtures/edited/missing-entry.json} 'but has no entry at that path'
-      prefetchFails ${./fixtures/edited/extra-package.json} 'which composer.lock does not have'
-      grep -qF 'Run `composer-purifier lock --force`' error
+      prefetchFails ${./fixtures/edited/missing-dist.json} 'has no hash for the dist of psr/log'
+      grep -qF 'Run `composer-purifier lock`.' error
       touch $out
     '';
 
   conformance-malformed =
     assert
       !(builtins.any accepted [
-        ./fixtures/malformed/version-1.json
-        ./fixtures/malformed/no-packages.json
-        ./fixtures/malformed/entry-without-hash.json
+        ./fixtures/malformed/version-3.json
+        ./fixtures/malformed/no-dists.json
+        ./fixtures/malformed/dist-hash-not-text.json
       ]);
     runCommand "conformance-malformed-check" { nativeBuildInputs = [ command ]; } ''
       ${commandEnvironment}
       ${appProject}
       ${prefetchFails}
-      prefetchFails ${./fixtures/malformed/version-1.json} 'has lock format version 1'
-      prefetchFails ${./fixtures/malformed/no-packages.json} 'has no valid `packages` field'
-      prefetchFails ${./fixtures/malformed/entry-without-hash.json} 'without a path or a hash'
-      printf '{"version": 3,' > broken.json
+      prefetchFails ${./fixtures/malformed/version-3.json} 'has lock format version 3'
+      prefetchFails ${./fixtures/malformed/no-dists.json} 'has no valid `dists` field'
+      prefetchFails ${./fixtures/malformed/dist-hash-not-text.json} 'has no valid `dists` field'
+      printf '{"version": 4,' > broken.json
       prefetchFails broken.json 'is not valid JSON'
       grep -qF 'Run `composer-purifier lock --force`' error
       touch $out
@@ -337,9 +389,9 @@ in
       ''
         ${commandEnvironment}
         ${appProject}
-        # A lockfile that no longer matches composer.lock is written again;
-        # its hashes come from the old one, without downloads.
-        jq '.composerLock = ""' composer-purifier.lock.json > old.json
+        # A lockfile whose content hash is gone is written again; its hashes
+        # come from the old one, without downloads.
+        jq '.contentHash = ""' composer-purifier.lock.json > old.json
         mv old.json composer-purifier.lock.json
         composer-purifier lock --no-audit
         cmp ${./fixtures/app/composer-purifier.lock.json} composer-purifier.lock.json
@@ -510,13 +562,34 @@ in
     ${commandEnvironment}
     ${appProject}
     echo >> composer.lock
-    composer-purifier lock --no-audit
-    # Only the hash of composer.lock and the content hash changed.
-    diff <(grep -v -e '"composerLock"' -e '"contentHash"' ${./fixtures/app/composer-purifier.lock.json}) \
-      <(grep -v -e '"composerLock"' -e '"contentHash"' composer-purifier.lock.json)
-    ! diff -q ${./fixtures/app/composer-purifier.lock.json} composer-purifier.lock.json
+    composer-purifier lock --no-audit 2> output
+    cat output
+    grep -qF 'is up to date with composer.lock' output
+    cmp ${./fixtures/app/composer-purifier.lock.json} composer-purifier.lock.json
     touch $out
   '';
+
+  urls =
+    runCommand "urls-check"
+      {
+        nativeBuildInputs = [ app.php ];
+      }
+      ''
+        ${commandEnvironment}
+        compare() {
+          cp -r "$1" project
+          chmod -R u+w project
+          (cd project && php ${./unit/urls.php} \
+            ${app.php.packages.composer}/share/php/composer/vendor/autoload.php \
+            ${../src/functions.php} > ../computed.json)
+          rm -rf project
+          diff "$2" computed.json
+        }
+        compare ${./fixtures/app} ${derivedUrls app}
+        compare ${./fixtures/sources} ${derivedUrls sources}
+        compare ${composerSource} ${derivedUrls realComposer}
+        touch $out
+      '';
 
   outputs =
     assert
@@ -529,9 +602,12 @@ in
         "check"
         "composer-purifier-fixture-sources"
       ];
+    assert app.fetches == app.cache.entries.entries;
     assert
-      app.fetches == (builtins.fromJSON (builtins.readFile ./fixtures/app/composer-purifier.lock.json))
-      .artifacts;
+      map (entry: entry.path) app.fetches == [
+        "files/monolog/monolog/13f7456348238a63d970854498776d96f53cdee8.zip"
+        "files/psr/log/2961e31604f4f4de116b458f772c4aa21861c5b4.zip"
+      ];
     assert app.release.name == "composer-purifier-fixture-app-0.zip";
     # tests/fixtures/sources has no `test` script.
     assert !(builtins.tryEval sources.tests).success;
@@ -539,6 +615,27 @@ in
       test "$(${lib.getExe app.packages.hello})" = "hello from composer-purifier"
       touch $out
     '';
+
+  read-lock =
+    let
+      lock = readLock { src = ./fixtures/app; };
+      stale = readLock {
+        src = ./fixtures/app;
+        composerLock = ./fixtures/stale/composer.lock;
+      };
+    in
+    assert lock.purifier == "composer-purifier";
+    assert lock.problems == [ ];
+    assert lock.entries == app.fetches;
+    assert
+      builtins.attrNames lock.outputs == [
+        "composer-purifier-fixture-app"
+        "hello"
+      ];
+    assert builtins.length stale.problems == 1;
+    assert lib.hasInfix "has no hash for the dist of monolog/monolog" (builtins.head stale.problems);
+    assert lib.hasInfix "Run `composer-purifier lock`." (builtins.head stale.problems);
+    runCommand "read-lock-check" { } "touch $out";
 
   release = runCommand "release-check" { nativeBuildInputs = [ unzip ]; } ''
     unzip -l ${app.release} > listing
@@ -549,6 +646,9 @@ in
   '';
 
   mirrors =
+    assert [ mirrored.url ] ++ mirrored.mirrors == mirroredUrls;
+    # The SHA-1 of the empty string, from the shasum of composer.lock.
+    assert mirrored.hash == "sha1-2jmj7l5rSw0yVb/vlWAYkK/YBwk=";
     assert nixpkgsFetch.urls == mirroredUrls;
     assert overriddenFetch.urls == mirroredUrls;
     runCommand "mirrors-check" { } "touch $out";

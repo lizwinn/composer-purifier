@@ -1,0 +1,9 @@
+{
+    "version": 4,
+    "dists": {
+        "https://api.github.com/repos/Seldaek/monolog/zipball/d7059e4c691d05ea1222b5124bed0f961be46e15": 1,
+        "https://api.github.com/repos/php-fig/log/zipball/f16e1d5863e37f8d8c2a01719f5b34baa2b714d3": 1
+    },
+    "sources": {},
+    "contentHash": "sha256-IIqMnjl96M3zBw1LDQW4QP9Kh7Le7a7Gi0f2Or3jzK8="
+}

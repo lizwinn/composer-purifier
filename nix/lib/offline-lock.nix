@@ -23,9 +23,9 @@
   writeText,
   # composer.lock, as an attribute set.
   composerLock,
-  # The lock of lock.nix.
-  lock,
-  # The fetcher of fetch.nix.
+  # The entries of entries.nix.
+  entries,
+  # The store path of an entry (the `fetch` of cache.nix).
   fetch,
   # The Nix path of each `path` repository outside the project directory,
   # by the URL that composer.json gives it.
@@ -51,18 +51,13 @@ let
     package:
     let
       dist = package.dist or null;
-      sourceType = package.source.type or null;
-      checkoutPath = "${sourceType}/${package.name}";
     in
-    if dist == null && builtins.elem sourceType lock.vcsKinds then
-      if lock.artifactsByPath ? ${checkoutPath} then
-        copied package {
-          type = "path";
-          url = "${fetch lock.artifactsByPath.${checkoutPath}}";
-          reference = package.source.reference;
-        }
-      else
-        throw "composer-purifier: the lockfile has no checkout of ${package.name}. Run `composer-purifier lock`."
+    if dist == null then
+      copied package {
+        type = "path";
+        url = "${fetch entries.byName.${package.name}}";
+        reference = package.source.reference;
+      }
     else if rewritePaths && dist != null && dist.type == "path" && outsideProject dist.url then
       if pathRepositories ? ${dist.url} then
         copied package (dist // { url = "${pathRepositories.${dist.url}}"; })

@@ -17,7 +17,7 @@ use Composer\Util\Url;
 
 // The format version of the lockfile. nix/lib/lock-version.nix holds the
 // same number.
-const FORMAT_VERSION = 3;
+const FORMAT_VERSION = 4;
 
 const LOCK_FILE = 'composer-purifier.lock.json';
 
@@ -88,12 +88,13 @@ function contentHash(array|\stdClass $lock): string
 }
 
 /**
- * The key of a download in readOldLock: the URL of a file, or the kind,
- * URL and revision of a checkout.
+ * The key of a checkout in the `sources` of the lockfile: the source URL
+ * and reference that composer.lock gives it. nix/lib/entries.nix looks the
+ * hash up by the same key.
  */
-function checkoutKey(string $kind, string $url, string $rev): string
+function sourceKey(string $url, string $reference): string
 {
-    return $kind . '#' . $url . '#' . $rev;
+    return $url . '#' . $reference;
 }
 
 /**
@@ -196,14 +197,15 @@ function cachePathFor(string $name, string $url, string $distType): string
 }
 
 /**
- * The hashes of an existing lockfile, by download key. An unreadable
- * lockfile or one of another format version holds none.
+ * The hashes of an existing lockfile: `dists` by the `dist.url` of
+ * composer.lock, and `sources` by sourceKey. An unreadable lockfile or one
+ * of another format version holds none.
  *
- * @return array{composerLock: ?string, hashes: array<string, string>}
+ * @return array{dists: array<string, string>, sources: array<string, string>}
  */
 function readOldLock(string $file): array
 {
-    $none = ['composerLock' => null, 'hashes' => []];
+    $none = ['dists' => [], 'sources' => []];
     if (!is_file($file)) {
         return $none;
     }
@@ -211,20 +213,11 @@ function readOldLock(string $file): array
     if (!is_array($lock) || ($lock['version'] ?? null) !== FORMAT_VERSION) {
         return $none;
     }
-    $hashes = [];
-    foreach ($lock['artifacts'] ?? [] as $artifact) {
-        $key = $artifact['url'] ?? null;
-        foreach (VCS_KINDS as $kind) {
-            if (isset($artifact[$kind])) {
-                $key = checkoutKey($kind, $artifact[$kind]['url'], $artifact[$kind]['rev']);
-            }
-        }
-        if ($key !== null && isset($artifact['hash'])) {
-            $hashes[$key] = $artifact['hash'];
-        }
-    }
 
-    return ['composerLock' => $lock['composerLock'] ?? null, 'hashes' => $hashes];
+    return [
+        'dists' => is_array($lock['dists'] ?? null) ? $lock['dists'] : [],
+        'sources' => is_array($lock['sources'] ?? null) ? $lock['sources'] : [],
+    ];
 }
 
 /**
@@ -258,28 +251,42 @@ function hashCheckout(string $kind, array $checkout): string
 }
 
 /**
- * The names of the packages of composer.lock, require-dev included.
+ * What the lockfile has to hold for a package of composer.lock: the
+ * `dists` key of a dist whose `shasum` is empty, the `sources` key of a
+ * package with only a version-control source, or null when composer.lock
+ * holds all that the build needs (a dist with a `shasum`, or a path dist).
  *
- * @param array<string, mixed> $composerLock
+ * @param array<string, mixed> $package
  *
- * @return list<string>
+ * @return array{0: 'dists'|'sources', 1: string, 2: string}|null the field,
+ *     the key, and what the key names, for messages
  */
-function lockedPackageNames(array $composerLock): array
+function neededHash(array $package): ?array
 {
-    $names = [];
-    foreach (array_merge($composerLock['packages'] ?? [], $composerLock['packages-dev'] ?? []) as $package) {
-        $names[] = (string) $package['name'];
-    }
-    sort($names);
+    $name = (string) ($package['name'] ?? '');
+    $dist = $package['dist'] ?? null;
+    if (is_array($dist)) {
+        if (($dist['type'] ?? null) === 'path' || ($dist['shasum'] ?? '') !== '') {
+            return null;
+        }
 
-    return $names;
+        return ['dists', (string) $dist['url'], "the dist of {$name} at {$dist['url']}"];
+    }
+    $source = $package['source'] ?? [];
+    $kind = (string) ($source['type'] ?? '');
+    if (!in_array($kind, VCS_KINDS, true)) {
+        checkoutOf($name, $kind, (string) ($source['url'] ?? ''), (string) ($source['reference'] ?? ''));
+    }
+    $key = sourceKey((string) ($source['url'] ?? ''), (string) ($source['reference'] ?? ''));
+
+    return ['sources', $key, "the {$kind} checkout of {$name} at {$key}"];
 }
 
 /**
- * Checks that the lockfile $lockText is one this version reads, that it was
- * made from the composer.lock whose text is $composerLockText, and that it
- * names an entry for every package of that composer.lock. Every failure
- * names the command that fixes it.
+ * Checks that the lockfile $lockText is one this version reads, that nobody
+ * edited it, and that it holds every hash that the packages of the
+ * composer.lock whose text is $composerLockText need. Every failure names
+ * the command that fixes it.
  */
 function checkLock(string $lockText, string $composerLockText): void
 {
@@ -296,17 +303,10 @@ function checkLock(string $lockText, string $composerLockText): void
         $version = json_encode($lock['version'] ?? null);
         throw new PurifierException(LOCK_FILE . " has lock format version {$version}; this composer-purifier reads version " . FORMAT_VERSION . ". {$relock}");
     }
-    foreach (['composerLock' => 'is_string', 'artifacts' => 'is_array', 'packages' => 'is_array'] as $field => $test) {
-        if (!isset($lock[$field]) || !$test($lock[$field])) {
+    foreach (['dists', 'sources'] as $field) {
+        if (!is_array($lock[$field] ?? null) || array_filter($lock[$field], fn ($hash) => !is_string($hash)) !== []) {
             throw new PurifierException(LOCK_FILE . " has no valid `{$field}` field. {$relock}");
         }
-    }
-    $paths = [];
-    foreach ($lock['artifacts'] as $index => $artifact) {
-        if (!is_array($artifact) || !isset($artifact['path'], $artifact['hash'])) {
-            throw new PurifierException(LOCK_FILE . " has an entry without a path or a hash, at index {$index}. {$relock}");
-        }
-        $paths[$artifact['path']] = true;
     }
 
     // Decoded into objects, so that an empty object stays one.
@@ -315,29 +315,14 @@ function checkLock(string $lockText, string $composerLockText): void
         throw new PurifierException(LOCK_FILE . " was edited after `composer-purifier lock` wrote it: its content does not match its contentHash. {$relock}");
     }
 
-    $hash = 'sha256-' . base64_encode(hash('sha256', $composerLockText, true));
-    if ($lock['composerLock'] !== $hash) {
-        throw new PurifierException('composer.lock changed after ' . LOCK_FILE . ' was written. Run `composer-purifier lock`.');
-    }
-
     $composerLock = json_decode($composerLockText, true);
     if (!is_array($composerLock)) {
         throw new PurifierException('composer.lock is not valid JSON. Run `composer update --lock`.');
     }
-    $named = array_keys($lock['packages']);
-    sort($named);
-    $locked = lockedPackageNames($composerLock);
-    $missing = array_diff($locked, $named);
-    if ($missing !== []) {
-        throw new PurifierException(LOCK_FILE . ' names no download for ' . implode(', ', $missing) . ", which composer.lock has. {$relock}");
-    }
-    $extra = array_diff($named, $locked);
-    if ($extra !== []) {
-        throw new PurifierException(LOCK_FILE . ' names ' . implode(', ', $extra) . ", which composer.lock does not have. {$relock}");
-    }
-    foreach ($lock['packages'] as $name => $path) {
-        if ($path !== null && !isset($paths[$path])) {
-            throw new PurifierException(LOCK_FILE . " names {$path} for {$name}, but has no entry at that path. {$relock}");
+    foreach (array_merge($composerLock['packages'] ?? [], $composerLock['packages-dev'] ?? []) as $package) {
+        $needed = neededHash($package);
+        if ($needed !== null && !isset($lock[$needed[0]][$needed[1]])) {
+            throw new PurifierException(LOCK_FILE . " has no hash for {$needed[2]}, which composer.lock has. Run `composer-purifier lock`.");
         }
     }
 }
