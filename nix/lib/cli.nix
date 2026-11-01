@@ -2,12 +2,13 @@
 # library from the composer-purifier package that runs the command:
 #
 #   cache        the Composer cache of the project's lockfile (cache.nix)
-#   composer     Composer on the PHP that the project requires (php.nix),
-#                the PHP buildComposerProject builds the project with
-#   offlineLock  the composer.lock that `install` reads (offline-lock.nix),
-#                with the path repositories as they are on the file system
-#   archive      the project's dist archive, as buildComposerProject builds
-#                it in the sandbox
+#   composer     Composer on the PHP that the project requires with its
+#                require-dev packages (php.nix)
+#   offlineLock  the composer.lock that the composer of this package reads
+#                for an offline install (offline-lock.nix), with the path
+#                repositories as they are on the file system
+#   release      the dist archive of the project, as buildComposerProject
+#                builds it in the sandbox
 #
 # Arguments:
 #
@@ -15,26 +16,32 @@
 #   purifier    the source directory of the purifier library
 #   system      the system to build for
 #   projectDir  the absolute path of the directory of composer.json
-#   dev         "1" when the install includes the require-dev packages
+#   lockFile    the absolute path of the lockfile; "" for the
+#               composer-purifier.lock.json of the project directory
 {
   nixpkgs,
   purifier,
   system,
   projectDir,
-  dev ? "1",
+  lockFile ? "",
 }:
 let
   pkgs = import nixpkgs { inherit system; };
   library = import (/. + purifier) { inherit (pkgs) lib; };
   dir = /. + projectDir;
+  lockPath = if lockFile == "" then dir + "/composer-purifier.lock.json" else /. + lockFile;
   composerLock = builtins.fromJSON (builtins.readFile (dir + "/composer.lock"));
   php = pkgs.callPackage ./php.nix {
     composerJson = builtins.fromJSON (builtins.readFile (dir + "/composer.json"));
     inherit composerLock;
-    dev = dev == "1";
+    dev = true;
   };
   cache = pkgs.callPackage ./cache.nix {
-    lockFile = dir + "/composer-purifier.lock.json";
+    lockFile = lockPath;
+    purifier = library;
+  };
+  build = import ./build-composer-project.nix {
+    inherit (pkgs) lib;
     purifier = library;
   };
 in
@@ -46,6 +53,10 @@ in
     inherit (cache) lock fetch;
     rewritePaths = false;
   };
-  archive =
-    ((pkgs.callPackage ./build-composer-project.nix { purifier = library; }) { src = dir; }).archive;
+  release =
+    (build {
+      inherit pkgs;
+      src = dir;
+      lockFile = lockPath;
+    }).release;
 }

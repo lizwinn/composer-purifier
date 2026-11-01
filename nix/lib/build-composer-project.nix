@@ -1,52 +1,55 @@
-# buildComposerProject: the sandboxed build of a Composer project, from the
-# lockfile that `composer-purifier lock` writes next to composer.lock.
+# buildComposerProject: the sandboxed builds of a Composer project, from the
+# lockfile that `composer-purifier lock` writes next to composer.lock. The
+# flake publishes it as `lib.composer-purifier.buildComposerProject`
+# (lib-overlays/default):
 #
-# The file is a package for callPackage: the first argument set is what it
-# takes from the package set, and the result is the builder. The
-# composer-purifier overlay (`overlays.default`) adds it to the package set
-# as `buildComposerProject`, so a package written for callPackage takes it
-# like any other dependency:
+#   lib.composer-purifier.buildComposerProject { inherit pkgs; src = ./.; }
 #
-#   { buildComposerProject }: buildComposerProject { src = ./.; }
+# `fetchers` goes unchanged to fetchEntry and tree of the purifier library,
+# so a company mirror or credentials go into `fetchers.fetchurl`, and a
+# private git repository into `fetchers.fetchgit`.
 #
-# and `buildComposerProject.override` replaces what it takes from the set.
-#
-# The build runs `composer install` in the Nix sandbox, offline, with the
+# Each build runs `composer install` in the Nix sandbox, offline, with the
 # Composer cache of the lockfile (cache.nix) and the composer.lock of
-# offline-lock.nix. The package holds the project with its `vendor`
-# directory under share/php/<name>, and a wrapper in bin/ for each entry of
-# the `bin` list of composer.json. Nix knows every output of the project
-# from composer.json, which it reads as JSON, without building anything:
+# offline-lock.nix. The result names every output from composer.json, which
+# Nix reads as JSON, without building anything:
 #
-#   bins.<name>              one package per entry of `bin`, holding only
-#                            that executable
-#   artifacts."<file name>"  each published file: the dist archive that
-#                            `composer archive` makes, <name>-<version>.zip
-#   archive                  the directory that holds the dist archive
-#
-# Its passthru also holds `cache`, `lock` and the `php` it built with.
+#   packages.<name>  the project with its `vendor` directory under
+#                    share/php/<name>, where <name> is the `name` of
+#                    composer.json with "/" made "-"; it has a wrapper in
+#                    bin/ for each entry of the `bin` list of composer.json
+#   packages.<bin>   one package per entry of `bin`, holding only that
+#                    executable
+#   tests            the `test` script of composer.json, run in the sandbox
+#                    on the project with its require-dev packages
+#   release          the dist archive that `composer archive` makes,
+#                    <name>-<version>.zip, which `composer-purifier publish`
+#                    copies into an artifact repository
+#   fetches          the entries of the lockfile, which the builds fetch
+#   cache            the Composer cache of the lockfile (cache.nix)
+#   php              the PHP of the packages, with the extensions the
+#                    project requires (php.nix)
+{ lib, purifier }:
 {
-  lib,
-  stdenvNoCC,
-  callPackage,
-  runCommand,
-  makeBinaryWrapper,
-  # The PHP that the default PHP of a build adds extensions to.
-  php,
-  # The `purifier` library namespace (lib.purifier of
-  # github:nix-purifiers/purifier), which fetches the lockfile entries.
-  purifier,
-}@setArgs:
-{
+  pkgs,
   # The root of the Composer project: the directory of composer.json.
   src,
+  # Replaces fetchers of the purifier library, by name (fetchurl, fetchgit,
+  # fetchhg, fetchsvn, fetchfossil). Each takes the arguments of the
+  # nixpkgs fetcher of its name.
+  fetchers ? { },
   # The lockfile; the default is the one `composer-purifier lock` writes
-  # next to composer.lock.
+  # next to composer.lock. A lockfile outside `src` lets a packaging flake
+  # build a project whose source holds none, and replaces any copy in it.
   lockFile ? src + "/composer-purifier.lock.json",
+  # composer.lock, for a project whose source holds none. A composer.lock
+  # given outside `src` replaces the copy in it.
+  composerLock ? src + "/composer.lock",
   # The PHP the project builds and runs with. The default is the package
   # set's `php` with the extensions the project requires (php.nix).
   php ? null,
-  # Installs the require-dev packages too.
+  # Installs the require-dev packages into `packages` too. `tests` always
+  # has them.
   dev ? false,
   # Skips the scripts of composer.json (`--no-scripts`).
   noScripts ? false,
@@ -55,48 +58,38 @@
   # The Nix path of each `path` repository outside the project directory,
   # by the URL that composer.json gives it: { "../lib" = ../lib; }.
   pathRepositories ? { },
-  # Replaces nixpkgs' fetchurl for dists; see cache.nix.
-  fetchurl ? null,
-  # Replaces nixpkgs' fetchers of version-control checkouts, by name; see
-  # cache.nix.
-  vcsFetchers ? { },
   # Filters the project root before it is copied into the store, as the
-  # `filter` of builtins.path. The default leaves out `vendor` and `.git`.
+  # `filter` of builtins.path. The default leaves out `vendor`, `.git` and
+  # `.composer-purifier`.
   srcFilter ? null,
 }:
 let
   lock = import ./lock.nix { inherit lockFile; };
-  cache = callPackage ./cache.nix {
-    inherit
-      lockFile
-      fetchurl
-      vcsFetchers
-      purifier
-      ;
-  };
+  cache = pkgs.callPackage ./cache.nix { inherit lockFile fetchers purifier; };
 
   composerJson = builtins.fromJSON (builtins.readFile (src + "/composer.json"));
-  composerLockFile = src + "/composer.lock";
-  composerLock = builtins.fromJSON (builtins.readFile composerLockFile);
+  lockedPackages = builtins.fromJSON (builtins.readFile composerLock);
 
   composerLockHash = builtins.convertHash {
-    hash = builtins.hashFile "sha256" composerLockFile;
+    hash = builtins.hashFile "sha256" composerLock;
     hashAlgo = "sha256";
     toHashFormat = "sri";
   };
 
-  buildPhp =
+  phpOf =
+    withDev:
     if php != null then
       php
     else
-      callPackage ./php.nix {
-        inherit (setArgs) php;
-        inherit composerJson composerLock dev;
+      pkgs.callPackage ./php.nix {
+        inherit composerJson;
+        composerLock = lockedPackages;
+        dev = withDev;
       };
-  composer = buildPhp.packages.composer;
 
-  offlineLock = callPackage ./offline-lock.nix {
-    inherit composerLock pathRepositories;
+  offlineLock = pkgs.callPackage ./offline-lock.nix {
+    inherit pathRepositories;
+    composerLock = lockedPackages;
     inherit (cache) lock fetch;
     rewritePaths = true;
   };
@@ -124,6 +117,7 @@ let
   pname = lock.storeName (
     builtins.replaceStrings [ "/" ] [ "-" ] (composerJson.name or (baseNameOf (toString src)))
   );
+  version = composerJson.version or "0";
 
   defaultSrcFilter =
     path: type:
@@ -138,109 +132,143 @@ let
     filter = if srcFilter != null then srcFilter else defaultSrcFilter;
   };
 
-  installFlags = [
-    "--no-interaction"
-    "--no-progress"
-    "--optimize-autoloader"
-  ]
-  ++ lib.optional (!dev) "--no-dev"
-  ++ lib.optional noScripts "--no-scripts"
-  ++ composerFlags;
-
-  version = composerJson.version or "0";
-
   # composer.json gives `bin` as one path or as a list of paths.
   bins = lib.toList (composerJson.bin or [ ]);
   binName = bin: baseNameOf bin;
 
-  # The file that `composer archive` writes: <file>.<format>.
-  archiveFileName = "${pname}-${version}.zip";
+  # The project installed with `composer install`, with the require-dev
+  # packages when `withDev` is set.
+  project =
+    withDev:
+    let
+      projectPhp = phpOf withDev;
+      installFlags = [
+        "--no-interaction"
+        "--no-progress"
+        "--optimize-autoloader"
+      ]
+      ++ lib.optional (!withDev) "--no-dev"
+      ++ lib.optional noScripts "--no-scripts"
+      ++ composerFlags;
+    in
+    pkgs.stdenvNoCC.mkDerivation {
+      pname = if withDev then "${pname}-dev" else pname;
+      inherit version;
+      src = source;
 
-  archive = stdenvNoCC.mkDerivation {
-    pname = "${pname}-archive";
-    inherit version;
-    src = source;
-    strictDeps = true;
-    nativeBuildInputs = [
-      buildPhp
-      composer
-    ];
-    dontConfigure = true;
-    dontFixup = true;
-    # `composer archive` packs the root package from the project source,
-    # leaving out what composer.json's `archive.exclude` and the
-    # export-ignore attributes of .gitattributes name.
-    buildPhase = ''
-      runHook preBuild
-      ${composerEnvironment}
-      mkdir -p $out
-      composer archive --no-interaction --format=zip --dir=$out --file=${pname}-${version}
-      test -f $out/${archiveFileName}
-      runHook postBuild
-    '';
-    dontInstall = true;
-  };
+      strictDeps = true;
+      nativeBuildInputs = [
+        projectPhp
+        projectPhp.packages.composer
+        pkgs.makeBinaryWrapper
+      ];
+
+      dontConfigure = true;
+
+      buildPhase = ''
+        runHook preBuild
+        ${composerEnvironment}
+        cp --no-preserve=mode ${offlineLock} composer.lock
+        composer install ${lib.escapeShellArgs installFlags}
+        runHook postBuild
+      '';
+
+      installPhase = ''
+        runHook preInstall
+        dir="$out/share/php/${pname}"
+        mkdir -p "$dir"
+        cp -r . "$dir"
+        ${lib.concatMapStrings (bin: ''
+          makeWrapper ${lib.getExe projectPhp} "$out/bin/${binName bin}" \
+            --add-flags "$dir/${bin}"
+        '') bins}
+        runHook postInstall
+      '';
+
+      passthru.php = projectPhp;
+
+      meta = lib.optionalAttrs (bins != [ ]) { mainProgram = binName (builtins.head bins); };
+    };
+
+  installed = project dev;
+  withDevPackages = project true;
+
+  binPackages = lib.listToAttrs (
+    map (
+      bin:
+      lib.nameValuePair (binName bin) (
+        pkgs.runCommand "${pname}-${binName bin}" { meta.mainProgram = binName bin; } ''
+          mkdir -p $out/bin
+          ln -s ${installed}/bin/${binName bin} $out/bin/${binName bin}
+        ''
+      )
+    ) bins
+  );
+
+  # `composer archive` packs the root package from the project source,
+  # leaving out what composer.json's `archive.exclude` and the export-ignore
+  # attributes of .gitattributes name.
+  release =
+    let
+      archivePhp = phpOf false;
+    in
+    pkgs.stdenvNoCC.mkDerivation {
+      name = "${pname}-${version}.zip";
+      src = source;
+      strictDeps = true;
+      nativeBuildInputs = [
+        archivePhp
+        archivePhp.packages.composer
+      ];
+      dontConfigure = true;
+      dontFixup = true;
+      buildPhase = ''
+        runHook preBuild
+        ${composerEnvironment}
+        composer archive --no-interaction --format=zip --dir="$TMPDIR/archive" --file=${pname}-${version}
+        mv "$TMPDIR/archive/${pname}-${version}.zip" $out
+        runHook postBuild
+      '';
+      dontInstall = true;
+    };
+
+  tests =
+    if (composerJson.scripts or { }) ? test then
+      pkgs.runCommand "${pname}-tests"
+        {
+          nativeBuildInputs = [
+            withDevPackages.php
+            withDevPackages.php.packages.composer
+          ];
+        }
+        ''
+          ${composerEnvironment}
+          cp -r ${withDevPackages}/share/php/${pname} project
+          chmod -R u+w project
+          cd project
+          composer run-script --no-interaction test
+          touch $out
+        ''
+    else
+      throw "composer-purifier: the composer.json of ${toString src} has no `test` script, which `tests` runs. Add one to its `scripts`, such as \"test\": \"phpunit\".";
 in
 assert
   composerLockHash == lock.composerLock
-  || throw "composer-purifier: composer.lock changed after ${toString lockFile} was written. Run `composer-purifier lock` in ${toString src}.";
-assert lock.checkCovers composerLock;
-stdenvNoCC.mkDerivation (finalAttrs: {
-  inherit pname version;
-  src = source;
-
-  strictDeps = true;
-  nativeBuildInputs = [
-    buildPhp
-    composer
-    makeBinaryWrapper
-  ];
-
-  dontConfigure = true;
-
-  buildPhase = ''
-    runHook preBuild
-    ${composerEnvironment}
-    cp --no-preserve=mode ${offlineLock} composer.lock
-    composer install ${lib.escapeShellArgs installFlags}
-    runHook postBuild
-  '';
-
-  installPhase = ''
-    runHook preInstall
-    dir="$out/share/php/${pname}"
-    mkdir -p "$dir"
-    cp -r . "$dir"
-    ${lib.concatMapStrings (bin: ''
-      makeWrapper ${lib.getExe buildPhp} "$out/bin/${binName bin}" \
-        --add-flags "$dir/${bin}"
-    '') bins}
-    runHook postInstall
-  '';
-
-  # The outputs of the project, by name, from composer.json alone, so that
-  # Nix knows them before it builds anything.
-  passthru = {
-    inherit cache lock archive;
-    php = buildPhp;
-
-    # One package per entry of the `bin` list of composer.json, holding
-    # only that executable.
-    bins = lib.listToAttrs (
-      map (
-        bin:
-        lib.nameValuePair (binName bin) (
-          runCommand "${pname}-${binName bin}" { meta.mainProgram = binName bin; } ''
-            mkdir -p $out/bin
-            ln -s ${finalAttrs.finalPackage}/bin/${binName bin} $out/bin/${binName bin}
-          ''
-        )
-      ) bins
-    );
-
-    # The published files of the project, by file name: the dist archive.
-    artifacts.${archiveFileName} = "${archive}/${archiveFileName}";
-  };
-
-  meta = lib.optionalAttrs (bins != [ ]) { mainProgram = binName (builtins.head bins); };
-})
+  || throw "composer-purifier: composer.lock changed after ${toString lockFile} was written. Run `composer-purifier lock` for ${toString src}.";
+assert lock.checkCovers lockedPackages;
+assert
+  !(binPackages ? ${pname})
+  || throw "composer-purifier: the bin ${pname} of ${toString src} has the name of the project, so `packages` cannot hold both.";
+{
+  packages = {
+    ${pname} = installed;
+  }
+  // binPackages;
+  inherit
+    tests
+    release
+    cache
+    ;
+  fetches = lock.artifacts;
+  php = installed.php;
+}

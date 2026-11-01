@@ -1,5 +1,5 @@
 {
-    "version": 2,
+    "version": 3,
     "composerLock": "sha256-vGprnCTjKNURHcJ40tZXyy2JKKHoO3kxjlqbRbYG3Xk=",
     "packages": {
         "fixture/via-fossil": "fossil/fixture/via-fossil",
@@ -46,5 +46,6 @@
             },
             "hash": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         }
-    ]
+    ],
+    "contentHash": "sha256-NkguKmLQLz4EDnogHYEvKY4sILtGuyuTsznoqvuzmAU="
 }

@@ -27,17 +27,18 @@
 
   # `nix run github:nix-purifiers/composer-purifier -- lock` writes
   # composer-purifier.lock.json for the Composer project in the current
-  # directory. `nix develop` gives PHP, Composer and the composer-purifier
-  # command.
+  # directory. `nix develop` gives PHP, the composer-purifier command, its
+  # `composer`, which installs offline after `composer-purifier prefetch`,
+  # and phpactor, a PHP language server.
   perSystem =
     { config, pkgs, ... }:
     {
       packages.default = config.packages.composer-purifier;
       devShells.default = pkgs.mkShell {
         packages = [
-          pkgs.php
-          pkgs.php.packages.composer
           config.packages.composer-purifier
+          pkgs.php
+          pkgs.phpactor
         ];
       };
     };
@@ -67,6 +68,7 @@
             checks = import ../../../tests {
               inherit pkgs;
               overlay = self.overlays.default;
+              inherit (self.lib.composer-purifier) buildComposerProject;
               inherit (inputs.purifier.lib) purifier;
               composerSource = inputs.composer-src;
             };

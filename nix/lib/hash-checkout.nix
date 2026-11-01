@@ -1,8 +1,8 @@
 # What `composer-purifier lock` builds to learn the hash of a checkout: the
 # fetch of the purifier library (fetchEntry) for that checkout, with a fake
 # hash. The build fetches the checkout and fails with the hash it got,
-# which composer-purifier-prefetch reads. The hash is then exactly the one
-# that the same fetch checks in a build.
+# which composer-purifier-hash-checkout reads. The hash is then exactly the
+# one that the same fetch checks in a build.
 #
 #   nixpkgs    the nixpkgs source directory
 #   purifier   the source directory of the purifier library

@@ -7,9 +7,10 @@
 # changing a fixture's composer.json.
 #
 # app and sources lock with the network. vcs names unreachable
-# repositories, so it locks offline, with tests/fake-prefetch.sh in place
-# of the prefetch command. tests/fixtures/outer-package is a path package
-# of sources, and has no lockfile of its own.
+# repositories, so it locks offline, with tests/fake-hash-checkout.sh in
+# place of the command that hashes checkouts.
+# tests/fixtures/outer-package is a path package of sources, and has no
+# lockfile of its own.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -37,7 +38,7 @@ echo "Relocking vcs" >&2
   cd "$root/tests/fixtures/vcs"
   COMPOSER_DISABLE_NETWORK=1 composer update --no-install --no-interaction --no-audit
   COMPOSER_HOME="$home" COMPOSER_DISABLE_NETWORK=1 \
-    COMPOSER_PURIFIER_PREFETCH="$root/tests/fake-prefetch.sh" \
+    COMPOSER_PURIFIER_HASH_CHECKOUT="$root/tests/fake-hash-checkout.sh" \
     "$composerPurifier" lock --force --no-audit
 )
 

@@ -4,7 +4,10 @@
 // `composer-purifier lock`: writes composer-purifier.lock.json next to
 // composer.lock, for the Composer project in the current directory.
 //
-//   php lock.php <Composer's vendor/autoload.php> [--force]
+//   php lock.php <Composer's vendor/autoload.php> [--force] [--lockfile <path>]
+//
+// --lockfile writes the lockfile at <path> rather than next to composer.lock,
+// for a project whose source does not hold it.
 //
 // The lockfile names every file that `composer install` downloads for the
 // packages of composer.lock, with the path of the file in Composer's cache
@@ -12,7 +15,9 @@
 // at files/<package>/<sha1 of the URL>.<dist type> (FileDownloader::download),
 // so a cache built from these entries lets `composer install` run offline.
 // `packages` maps every package of composer.lock to the path of its entry,
-// or to null for a package of a path repository.
+// or to null for a package of a path repository. `contentHash` is the hash
+// of everything else in the file (contentHash in functions.php), so that an
+// edit by hand fails the build and `composer-purifier prefetch`.
 //
 // The script uses Composer as a library: it reads the locked packages the
 // way `composer install` does, computes each download URL with Composer's
@@ -22,7 +27,7 @@
 // A package that composer.lock gives only a version-control source (git,
 // hg, svn or fossil) gets a checkout entry instead: the repository URL, the
 // locked revision, and the hash of the checkout that the nixpkgs fetcher of
-// that kind makes. The command that COMPOSER_PURIFIER_PREFETCH names
+// that kind makes. The command that COMPOSER_PURIFIER_HASH_CHECKOUT names
 // computes the hash; the composer-purifier package sets it to a script that
 // runs the fetcher itself. The Nix side installs such a package from its
 // checkout as a path dist (nix/lib/offline-lock.nix).
@@ -45,12 +50,26 @@ use Symfony\Component\Console\Output\ConsoleOutput;
 
 require __DIR__ . '/functions.php';
 
+$usage = "usage: lock.php <Composer vendor/autoload.php> [--force] [--lockfile <path>]\n";
 $autoload = $argv[1] ?? null;
+$force = false;
+$lockFileOption = null;
+$arguments = array_slice($argv, 2);
+while ($arguments !== []) {
+    $argument = array_shift($arguments);
+    if ($argument === '--force') {
+        $force = true;
+    } elseif ($argument === '--lockfile' && $arguments !== []) {
+        $lockFileOption = array_shift($arguments);
+    } else {
+        $autoload = null;
+        break;
+    }
+}
 if ($autoload === null) {
-    fwrite(STDERR, "usage: lock.php <Composer vendor/autoload.php> [--force]\n");
+    fwrite(STDERR, $usage);
     exit(2);
 }
-$force = in_array('--force', array_slice($argv, 2), true);
 require $autoload;
 
 try {
@@ -68,7 +87,7 @@ try {
         throw new PurifierException('composer.lock is out of date with composer.json. Run `composer update --lock` first.');
     }
 
-    $lockFile = dirname($composerLockFile) . '/' . LOCK_FILE;
+    $lockFile = $lockFileOption ?? dirname($composerLockFile) . '/' . LOCK_FILE;
     $composerLockHash = sriSha256($composerLockFile);
     $old = readOldLock($lockFile);
     if (!$force && $old['composerLock'] === $composerLockHash) {
@@ -107,7 +126,7 @@ try {
             $artifacts[$path] = [
                 'path' => $path,
                 $kind => $checkout,
-                'hash' => $old['hashes'][$key] ?? prefetch($kind, $checkout),
+                'hash' => $old['hashes'][$key] ?? hashCheckout($kind, $checkout),
             ];
             $packages[$name] = $path;
             continue;
@@ -156,6 +175,7 @@ try {
         'packages' => (object) $packages,
         'artifacts' => array_values($artifacts),
     ];
+    $lock['contentHash'] = contentHash($lock);
     file_put_contents($lockFile, json_encode($lock, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
     $io->writeError('Wrote ' . LOCK_FILE . ' with ' . count($artifacts) . ' downloads.');
 } catch (PurifierException $e) {

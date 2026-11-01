@@ -25,24 +25,22 @@
   # The `purifier` library namespace (lib.purifier of
   # github:nix-purifiers/purifier).
   purifier,
-  # Replaces nixpkgs' fetchurl for file entries: for credentials or
-  # mirrors. It takes the arguments of nixpkgs' fetchurl.
-  fetchurl ? null,
-  # Replaces nixpkgs' fetchers of version-control checkouts, by name
-  # (fetchgit, fetchhg, fetchsvn or fetchfossil): for mirrors or
-  # credentials. Each takes the arguments of the nixpkgs fetcher.
-  vcsFetchers ? { },
+  # Replaces fetchers of the purifier library, by name (fetchurl, fetchgit,
+  # fetchhg, fetchsvn, fetchfossil): for a company mirror or credentials.
+  # Each takes the arguments of the nixpkgs fetcher of its name.
+  fetchers ? { },
 }:
 let
   lock = import ./lock.nix { inherit lockFile; };
-  fetchers = {
+  # `pkgs` goes with the fetchers, so that a file entry is fetched with
+  # nixpkgs' fetchurl, which tries its mirrors too.
+  libraryArguments = {
     inherit pkgs;
   }
-  // (if fetchurl != null then { inherit fetchurl; } else { })
-  // vcsFetchers;
+  // fetchers;
 in
 purifier.tree (
-  fetchers
+  libraryArguments
   // {
     name = "composer-cache";
     entries = lock.artifacts;
@@ -51,5 +49,5 @@ purifier.tree (
 // {
   inherit lock;
   # The store path of one entry of the lockfile.
-  fetch = purifier.fetchEntry fetchers;
+  fetch = purifier.fetchEntry libraryArguments;
 }

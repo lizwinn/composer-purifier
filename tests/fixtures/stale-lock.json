@@ -1,5 +1,5 @@
 {
-    "version": 2,
+    "version": 3,
     "composerLock": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     "packages": {
         "monolog/monolog": "files/monolog/monolog/13f7456348238a63d970854498776d96f53cdee8.zip",
@@ -18,5 +18,6 @@
             "mirrors": [],
             "hash": "sha256-Ho3PLfkz/DRAspFGxcpOk+zlHFx6msllPZJuyXHJCJI="
         }
-    ]
+    ],
+    "contentHash": "sha256-sZIahUvNixyxIRmgaJ+LMyoQ4IJ0PVKNIBddrFzJwuQ="
 }

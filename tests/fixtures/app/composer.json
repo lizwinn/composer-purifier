@@ -19,6 +19,7 @@
     "scripts": {
         "post-install-cmd": [
             "@php -r \"file_put_contents('installed-by-script', 'yes');\""
-        ]
+        ],
+        "test": "@php tests/greeting-test.php"
     }
 }

@@ -4,6 +4,8 @@
 # for the packages of composer.lock:
 #
 #   version        the lock format version (lock-version.nix)
+#   contentHash    the hash of every other field of the lockfile, so that an
+#                  edit by hand fails evaluation (contentHash below)
 #   composerLock   the SRI SHA-256 hash of the composer.lock it was made from
 #   packages       every package of composer.lock, by name, mapped to the
 #                  path of its entry in `artifacts`, or to null for a
@@ -93,12 +95,27 @@ let
       invalid "has no valid `packages` field"
     else if !(builtins.isList (lock.artifacts or null)) then
       invalid "has no valid `artifacts` field"
-    else
-      builtins.all (x: x) (
+    else if
+      !(builtins.all (x: x) (
         builtins.genList (index: validEntry index (builtins.elemAt lock.artifacts index)) (
           builtins.length lock.artifacts
         )
-      );
+      ))
+    then
+      false
+    else if (lock.contentHash or null) != contentHash then
+      throw "composer-purifier: ${toString lockFile} was edited after `composer-purifier lock` wrote it: its content does not match its contentHash. ${relock}"
+    else
+      true;
+
+  # The hash of everything in the lockfile but `contentHash`: the SRI
+  # SHA-256 of its JSON as builtins.toJSON writes it, with sorted keys and
+  # no whitespace. contentHash in src/functions.php computes the same hash.
+  contentHash = builtins.convertHash {
+    hash = builtins.hashString "sha256" (builtins.toJSON (builtins.removeAttrs lock [ "contentHash" ]));
+    hashAlgo = "sha256";
+    toHashFormat = "sri";
+  };
 in
 assert valid;
 lock

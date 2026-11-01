@@ -17,7 +17,7 @@ use Composer\Util\Url;
 
 // The format version of the lockfile. nix/lib/lock-version.nix holds the
 // same number.
-const FORMAT_VERSION = 2;
+const FORMAT_VERSION = 3;
 
 const LOCK_FILE = 'composer-purifier.lock.json';
 
@@ -40,6 +40,51 @@ final class PurifierException extends \RuntimeException
 function sriSha256(string $file): string
 {
     return 'sha256-' . base64_encode(hash_file('sha256', $file, true));
+}
+
+/**
+ * $value as JSON in the form that Nix's builtins.toJSON writes: object
+ * keys sorted, no whitespace, slashes and non-ASCII characters as they are.
+ * An object is a stdClass or an array with string keys; an array with keys
+ * 0, 1, … is a list, the empty array included.
+ */
+function canonicalJson(mixed $value): string
+{
+    if ($value instanceof \stdClass) {
+        $value = get_object_vars($value);
+        $isObject = true;
+    } else {
+        $isObject = is_array($value) && !array_is_list($value);
+    }
+    if ($isObject) {
+        ksort($value, SORT_STRING);
+        $members = [];
+        foreach ($value as $key => $member) {
+            $members[] = json_encode((string) $key, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . ':' . canonicalJson($member);
+        }
+
+        return '{' . implode(',', $members) . '}';
+    }
+    if (is_array($value)) {
+        return '[' . implode(',', array_map(__NAMESPACE__ . '\canonicalJson', $value)) . ']';
+    }
+
+    return json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+}
+
+/**
+ * The hash of the content of a lockfile: the SRI SHA-256 of the canonical
+ * JSON of every field but `contentHash` itself. nix/lib/lock.nix computes
+ * the same hash with builtins.toJSON.
+ *
+ * @param array<string, mixed>|\stdClass $lock
+ */
+function contentHash(array|\stdClass $lock): string
+{
+    $fields = $lock instanceof \stdClass ? get_object_vars($lock) : $lock;
+    unset($fields['contentHash']);
+
+    return 'sha256-' . base64_encode(hash('sha256', canonicalJson((object) $fields), true));
 }
 
 /**
@@ -183,17 +228,17 @@ function readOldLock(string $file): array
 }
 
 /**
- * The hash of a checkout, from the command that COMPOSER_PURIFIER_PREFETCH
- * names. The command takes the kind and the checkout as JSON, and prints
- * the SRI hash of the checkout.
+ * The hash of a checkout, from the command that
+ * COMPOSER_PURIFIER_HASH_CHECKOUT names. The command takes the kind and the
+ * checkout as JSON, and prints the SRI hash of the checkout.
  *
  * @param array<string, mixed> $checkout
  */
-function prefetch(string $kind, array $checkout): string
+function hashCheckout(string $kind, array $checkout): string
 {
-    $command = getenv('COMPOSER_PURIFIER_PREFETCH');
+    $command = getenv('COMPOSER_PURIFIER_HASH_CHECKOUT');
     if ($command === false || $command === '') {
-        throw new PurifierException('COMPOSER_PURIFIER_PREFETCH names no command to hash checkouts with. Run lock through the composer-purifier command.');
+        throw new PurifierException('COMPOSER_PURIFIER_HASH_CHECKOUT names no command to hash checkouts with. Run lock through the composer-purifier command.');
     }
     $process = proc_open(
         [$command, $kind, json_encode($checkout, JSON_UNESCAPED_SLASHES)],
@@ -262,6 +307,12 @@ function checkLock(string $lockText, string $composerLockText): void
             throw new PurifierException(LOCK_FILE . " has an entry without a path or a hash, at index {$index}. {$relock}");
         }
         $paths[$artifact['path']] = true;
+    }
+
+    // Decoded into objects, so that an empty object stays one.
+    $lockObject = json_decode($lockText, false);
+    if (($lock['contentHash'] ?? null) !== contentHash($lockObject)) {
+        throw new PurifierException(LOCK_FILE . " was edited after `composer-purifier lock` wrote it: its content does not match its contentHash. {$relock}");
     }
 
     $hash = 'sha256-' . base64_encode(hash('sha256', $composerLockText, true));

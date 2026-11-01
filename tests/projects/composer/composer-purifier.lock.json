@@ -1,5 +1,5 @@
 {
-    "version": 2,
+    "version": 3,
     "composerLock": "sha256-3GgK0HF3csoMpVCAGJzKTRknGIHcCOQXJzkFTSCnuFc=",
     "packages": {
         "composer/ca-bundle": "files/composer/ca-bundle/23ac2f88015643a2611b016d045758f3cd31d48a.zip",
@@ -256,5 +256,6 @@
             "mirrors": [],
             "hash": "sha256-PGOfob5GuSKXIn2jLJ79XFNiV4x2FOykZ6xnVPgXSzE="
         }
-    ]
+    ],
+    "contentHash": "sha256-vC89+qmK7Qjf1KPIRgIIYX6pP2Y/8n3NDf7jgifJMKo="
 }

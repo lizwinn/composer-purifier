@@ -119,6 +119,11 @@ $composerLock = (string) file_get_contents("{$fixtures}/app/composer.lock");
 $lock = (string) file_get_contents("{$fixtures}/app/composer-purifier.lock.json");
 checkLock($lock, $composerLock);
 throwsWith('composer.lock changed', fn () => checkLock($lock, $composerLock . "\n"), 'checkLock of a stale lockfile');
+throwsWith('was edited after `composer-purifier lock` wrote it', fn () => checkLock((string) file_get_contents("{$fixtures}/edited/tampered-hash.json"), $composerLock), 'checkLock of a lockfile with an edited hash');
+
+// The content hash: canonical JSON as builtins.toJSON writes it.
+same('{"a":[],"b":{},"c":null,"d":"x/y","e":[1,true]}', canonicalJson(['e' => [1, true], 'd' => 'x/y', 'c' => null, 'b' => new \stdClass(), 'a' => []]), 'canonicalJson sorts keys and keeps empty objects and lists');
+same(json_decode($lock, true)['contentHash'], contentHash(json_decode($lock, false)), 'contentHash of the app lockfile');
 throwsWith('is not valid JSON', fn () => checkLock('{"version": 2,', $composerLock), 'checkLock of a lockfile that is not JSON');
 throwsWith('lock format version 1', fn () => checkLock((string) file_get_contents("{$fixtures}/malformed/version-1.json"), $composerLock), 'checkLock of another format version');
 throwsWith('without a path or a hash', fn () => checkLock((string) file_get_contents("{$fixtures}/malformed/entry-without-hash.json"), $composerLock), 'checkLock of an entry without a hash');

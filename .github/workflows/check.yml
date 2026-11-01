@@ -49,9 +49,16 @@ jobs:
       - name: Evaluate every output for both systems
         run: nix flake check --all-systems --no-build
 
+      # A check cannot run Nix, so `nix build --rebuild`, which builds one
+      # derivation twice and compares the outputs, runs here.
+      - name: conformance-rebuild
+        run: |
+          nix build --file tests/app-package.nix --no-link
+          nix build --file tests/app-package.nix --no-link --rebuild
+
       # A check cannot run a build that has to fail, so the rejection of a
-      # tampered hash runs here.
-      - name: Reject a download whose locked hash was edited
+      # tampered hash at download time runs here.
+      - name: conformance-tampered
         run: |
           if nix build --file tests/tampered-hash.nix --no-link 2> tampered.log; then
             echo "Nix accepted a download that does not match its locked hash" >&2

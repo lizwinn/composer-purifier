@@ -1,5 +1,5 @@
 {
-    "version": 2,
+    "version": 3,
     "composerLock": "sha256-Pw8Pj0YjOhyIHGeLrAsA31m2C0XBzY8yIePuTXEfdLI=",
     "artifacts": [
         {
@@ -14,5 +14,6 @@
             "mirrors": [],
             "hash": "sha256-Ho3PLfkz/DRAspFGxcpOk+zlHFx6msllPZJuyXHJCJI="
         }
-    ]
+    ],
+    "contentHash": "sha256-8E5Oy0Na2g4NIAwxoj74ZsXdwslghQUi2pQF7U8cNoI="
 }
