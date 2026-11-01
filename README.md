@@ -69,7 +69,17 @@ package set.
 The package holds the project with its `vendor` directory under
 `share/php/<name>`, where `<name>` is the `name` of `composer.json` with
 `/` replaced by `-`. Each entry of the `bin` list of `composer.json` gets a
-wrapper in `bin/`. `nix/lib/build-composer-project.nix` documents the
+wrapper in `bin/`.
+
+Nix knows every output of the project when it evaluates, from
+`composer.json` alone, which it reads as JSON:
+
+- `bins.<name>` is a package for each entry of the `bin` list, holding only
+  that executable.
+- `artifacts."<name>-<version>.zip"` is the dist archive that `composer
+  archive` makes (see [Publishing](#publishing)).
+
+A Composer project is one package, so these are all its outputs. `nix/lib/build-composer-project.nix` documents the
 builder's arguments: `php`, `dev` (installs the `require-dev` packages),
 `noScripts`, `composerFlags`, `pathRepositories`, `fetchurl` and
 `vcsFetchers` (for credentials or mirrors), and `srcFilter`.

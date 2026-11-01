@@ -32,8 +32,11 @@
 #   cli-install-sources  the same for tests/fixtures/sources, whose path
 #                      repository outside the project stays on the file
 #                      system
-#   archive            the `archive` of tests/fixtures/app is a zip of the
-#                      project without its vendor directory
+#   outputs            the `bins` and `artifacts` of the fixtures, known from
+#                      composer.json at evaluation time, name the right
+#                      outputs, and they build and run
+#   archive            the dist archive of tests/fixtures/app is a zip of
+#                      the project without its vendor directory
 #   mirrors            the fetch of a file entry with mirrors
 #                      (tests/fixtures/mirrors-lock.json) tries its URL and
 #                      then its mirrors, with the built-in fetcher and with
@@ -264,8 +267,20 @@ in
     assert overriddenFetch.urls == mirroredUrls;
     runCommand "mirrors-check" { } "touch $out";
 
+  # The outputs of the app fixture are known from composer.json at
+  # evaluation time: one bin and one archive.
+  outputs =
+    assert builtins.attrNames app.bins == [ "hello" ];
+    assert builtins.attrNames app.artifacts == [ "composer-purifier-fixture-app-0.zip" ];
+    assert builtins.attrNames sources.bins == [ "check" ];
+    runCommand "outputs-check" { } ''
+      test "$(${lib.getExe app.bins.hello})" = "hello from composer-purifier"
+      test -f ${app.artifacts."composer-purifier-fixture-app-0.zip"}
+      touch $out
+    '';
+
   archive = runCommand "archive-check" { nativeBuildInputs = [ unzip ]; } ''
-    zip=${app.archive}/composer-purifier-fixture-app-0.zip
+    zip=${app.artifacts."composer-purifier-fixture-app-0.zip"}
     unzip -l "$zip" > listing
     grep -q ' composer.json$' listing
     grep -q ' src/Greeting.php$' listing

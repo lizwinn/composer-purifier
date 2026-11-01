@@ -15,13 +15,21 @@
 # Composer cache of the lockfile (cache.nix) and the composer.lock of
 # offline-lock.nix. The package holds the project with its `vendor`
 # directory under share/php/<name>, and a wrapper in bin/ for each entry of
-# the `bin` list of composer.json. Its passthru holds `cache`, `lock`, the
-# `php` it built with, and `archive`: the dist archive of the project that
-# `composer archive` makes, as a zip file in a directory.
+# the `bin` list of composer.json. Nix knows every output of the project
+# from composer.json, which it reads as JSON, without building anything:
+#
+#   bins.<name>              one package per entry of `bin`, holding only
+#                            that executable
+#   artifacts."<file name>"  each published file: the dist archive that
+#                            `composer archive` makes, <name>-<version>.zip
+#   archive                  the directory that holds the dist archive
+#
+# Its passthru also holds `cache`, `lock` and the `php` it built with.
 {
   lib,
   stdenvNoCC,
   callPackage,
+  runCommand,
   makeBinaryWrapper,
   # The PHP that the default PHP of a build adds extensions to.
   php,
@@ -129,14 +137,45 @@ let
   ++ lib.optional noScripts "--no-scripts"
   ++ composerFlags;
 
-  bins = composerJson.bin or [ ];
+  version = composerJson.version or "0";
+
+  # composer.json gives `bin` as one path or as a list of paths.
+  bins = lib.toList (composerJson.bin or [ ]);
+  binName = bin: baseNameOf bin;
+
+  # The file that `composer archive` writes: <file>.<format>.
+  archiveFileName = "${pname}-${version}.zip";
+
+  archive = stdenvNoCC.mkDerivation {
+    pname = "${pname}-archive";
+    inherit version;
+    src = source;
+    strictDeps = true;
+    nativeBuildInputs = [
+      buildPhp
+      composer
+    ];
+    dontConfigure = true;
+    dontFixup = true;
+    # `composer archive` packs the root package from the project source,
+    # leaving out what composer.json's `archive.exclude` and the
+    # export-ignore attributes of .gitattributes name.
+    buildPhase = ''
+      runHook preBuild
+      ${composerEnvironment}
+      mkdir -p $out
+      composer archive --no-interaction --format=zip --dir=$out --file=${pname}-${version}
+      test -f $out/${archiveFileName}
+      runHook postBuild
+    '';
+    dontInstall = true;
+  };
 in
 assert
   composerLockHash == lock.composerLock
   || throw "composer-purifier: ${toString lockFile} was made from a different composer.lock. Run `composer-purifier lock` in ${toString src}.";
-stdenvNoCC.mkDerivation {
-  inherit pname;
-  version = composerJson.version or "0";
+stdenvNoCC.mkDerivation (finalAttrs: {
+  inherit pname version;
   src = source;
 
   strictDeps = true;
@@ -162,40 +201,35 @@ stdenvNoCC.mkDerivation {
     mkdir -p "$dir"
     cp -r . "$dir"
     ${lib.concatMapStrings (bin: ''
-      makeWrapper ${lib.getExe buildPhp} "$out/bin/${baseNameOf bin}" \
+      makeWrapper ${lib.getExe buildPhp} "$out/bin/${binName bin}" \
         --add-flags "$dir/${bin}"
     '') bins}
     runHook postInstall
   '';
 
+  # The outputs of the project, by name, from composer.json alone, so that
+  # Nix knows them before it builds anything.
   passthru = {
-    inherit cache lock;
+    inherit cache lock archive;
     php = buildPhp;
 
-    # `composer archive` packs the root package from the project source,
-    # leaving out what composer.json's `archive.exclude` and the
-    # export-ignore attributes of .gitattributes name.
-    archive = stdenvNoCC.mkDerivation {
-      pname = "${pname}-archive";
-      version = composerJson.version or "0";
-      src = source;
-      strictDeps = true;
-      nativeBuildInputs = [
-        buildPhp
-        composer
-      ];
-      dontConfigure = true;
-      dontFixup = true;
-      buildPhase = ''
-        runHook preBuild
-        ${composerEnvironment}
-        mkdir -p $out
-        composer archive --no-interaction --format=zip --dir=$out --file=${pname}-${composerJson.version or "0"}
-        runHook postBuild
-      '';
-      dontInstall = true;
-    };
+    # One package per entry of the `bin` list of composer.json, holding
+    # only that executable.
+    bins = lib.listToAttrs (
+      map (
+        bin:
+        lib.nameValuePair (binName bin) (
+          runCommand "${pname}-${binName bin}" { meta.mainProgram = binName bin; } ''
+            mkdir -p $out/bin
+            ln -s ${finalAttrs.finalPackage}/bin/${binName bin} $out/bin/${binName bin}
+          ''
+        )
+      ) bins
+    );
+
+    # The published files of the project, by file name: the dist archive.
+    artifacts.${archiveFileName} = "${archive}/${archiveFileName}";
   };
 
-  meta = lib.optionalAttrs (bins != [ ]) { mainProgram = baseNameOf (builtins.head bins); };
-}
+  meta = lib.optionalAttrs (bins != [ ]) { mainProgram = binName (builtins.head bins); };
+})
