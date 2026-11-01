@@ -28,6 +28,10 @@
   symlinkJoin,
   writeShellApplication,
   php,
+  # The source directory of the purifier library, whose fetches the
+  # nix-build calls of the command import. The default package overlay
+  # gives it from the `purifier` input of this flake.
+  purifierSource ? throw "composer-purifier: the composer-purifier package needs the source of the purifier library as purifierSource.",
 }:
 let
   composer = php.packages.composer;
@@ -37,6 +41,7 @@ let
 
   nixArguments = ''
     --argstr nixpkgs ${path} \
+    --argstr purifier ${purifierSource} \
     --argstr system ${stdenv.hostPlatform.system}'';
 
   prefetch = writeShellApplication {

@@ -56,11 +56,14 @@
 #                      the project without its vendor directory
 #   mirrors            the fetch of a file entry with mirrors
 #                      (tests/fixtures/mirrors-lock.json) tries its URL and
-#                      then its mirrors, with the built-in fetcher and with
+#                      then its mirrors, with nixpkgs' fetchurl and with
 #                      a `fetchurl` in its place
 {
   pkgs,
   overlay,
+  # The `purifier` library namespace (lib.purifier of
+  # github:nix-purifiers/purifier).
+  purifier,
   # The source of composer/composer at its 2.10.3 release, an input of
   # tests/dependencies.
   composerSource,
@@ -111,7 +114,7 @@ let
     '';
 
   # Stand-ins for the nixpkgs fetchers. Each checks the arguments that
-  # fetch.nix gives it for the entry of tests/fixtures/vcs.
+  # the purifier library gives it for the entry of tests/fixtures/vcs.
   standInFetchers = {
     fetchgit =
       args:
@@ -137,7 +140,7 @@ let
       args:
       assert args.url == "https://example.invalid/fixture/fossil";
       assert args.rev == "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
-      assert lib.hasPrefix "sha256-" args.outputHash;
+      assert lib.hasPrefix "sha256-" args.hash;
       standInCheckout "fossil";
   };
 
@@ -174,7 +177,7 @@ let
     let
       lock = import ../nix/lib/lock.nix { inherit lockFile; };
     in
-    import ../nix/lib/fetch.nix { inherit lock; } lock.artifactsByPath.${monologPath};
+    purifier.fetchEntry { pkgs = purified; } lock.artifactsByPath.${monologPath};
   originalFetch = fetchOf ./fixtures/app/composer-purifier.lock.json;
   tamperedFetch = fetchOf ./fixtures/edited/tampered-hash.json;
   tamperedLock = builtins.fromJSON (builtins.readFile ./fixtures/edited/tampered-hash.json);
@@ -195,9 +198,9 @@ let
     "https://example.invalid/dists/fixture-mirrored.zip"
     "https://mirror.example.invalid/dists/fixture-mirrored.zip"
   ];
-  builtinFetch = import ../nix/lib/fetch.nix { lock = mirroredLock; } mirrored;
-  overriddenFetch = import ../nix/lib/fetch.nix {
-    lock = mirroredLock;
+  nixpkgsFetch = purifier.fetchEntry { pkgs = purified; } mirrored;
+  overriddenFetch = purifier.fetchEntry {
+    pkgs = purified;
     fetchurl = args: args;
   } mirrored;
 
@@ -392,7 +395,7 @@ in
       '';
 
   mirrors =
-    assert builtinFetch.drvAttrs.urls == mirroredUrls;
+    assert nixpkgsFetch.urls == mirroredUrls;
     assert overriddenFetch.urls == mirroredUrls;
     runCommand "mirrors-check" { } "touch $out";
 

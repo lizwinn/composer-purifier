@@ -8,7 +8,10 @@
 #
 #   nix build --file tests/tampered-hash.nix --no-link
 let
+  flake = builtins.getFlake (toString ./..);
+  pkgs = flake.inputs.nixpkgs.legacyPackages.${builtins.currentSystem};
   lock = import ../nix/lib/lock.nix { lockFile = ./fixtures/edited/tampered-hash.json; };
-  fetch = import ../nix/lib/fetch.nix { inherit lock; };
 in
-fetch lock.artifactsByPath."files/monolog/monolog/13f7456348238a63d970854498776d96f53cdee8.zip"
+flake.inputs.purifier.lib.purifier.fetchEntry {
+  inherit pkgs;
+} lock.artifactsByPath."files/monolog/monolog/13f7456348238a63d970854498776d96f53cdee8.zip"

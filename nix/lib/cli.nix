@@ -1,5 +1,5 @@
-# What the `composer-purifier` command builds, with nixpkgs from the
-# composer-purifier package that runs the command:
+# What the `composer-purifier` command builds, with nixpkgs and the purifier
+# library from the composer-purifier package that runs the command:
 #
 #   cache        the Composer cache of the project's lockfile (cache.nix)
 #   composer     Composer on the PHP that the project requires (php.nix),
@@ -12,17 +12,20 @@
 # Arguments:
 #
 #   nixpkgs     the nixpkgs source directory
+#   purifier    the source directory of the purifier library
 #   system      the system to build for
 #   projectDir  the absolute path of the directory of composer.json
 #   dev         "1" when the install includes the require-dev packages
 {
   nixpkgs,
+  purifier,
   system,
   projectDir,
   dev ? "1",
 }:
 let
   pkgs = import nixpkgs { inherit system; };
+  library = import (/. + purifier + "/nix/lib") { inherit (pkgs) lib; };
   dir = /. + projectDir;
   composerLock = builtins.fromJSON (builtins.readFile (dir + "/composer.lock"));
   php = pkgs.callPackage ./php.nix {
@@ -30,7 +33,10 @@ let
     inherit composerLock;
     dev = dev == "1";
   };
-  cache = pkgs.callPackage ./cache.nix { lockFile = dir + "/composer-purifier.lock.json"; };
+  cache = pkgs.callPackage ./cache.nix {
+    lockFile = dir + "/composer-purifier.lock.json";
+    purifier = library;
+  };
 in
 {
   inherit cache;
@@ -40,5 +46,6 @@ in
     inherit (cache) lock fetch;
     rewritePaths = false;
   };
-  archive = ((pkgs.callPackage ./build-composer-project.nix { }) { src = dir; }).archive;
+  archive =
+    ((pkgs.callPackage ./build-composer-project.nix { purifier = library; }) { src = dir; }).archive;
 }

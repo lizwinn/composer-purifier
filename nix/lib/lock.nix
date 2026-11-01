@@ -19,7 +19,9 @@
 #                  hash } is a package that composer.lock gives only a
 #                  source of that kind (git, hg, svn or fossil): `path` is
 #                  <kind>/<package>, and `hash` is the hash of the checkout
-#                  that the nixpkgs fetcher of that kind checks (fetch.nix).
+#                  that the nixpkgs fetcher of that kind checks. These are
+#                  the entries of the purifier library, which fetches them
+#                  (cache.nix).
 #                  The fetcher options of each kind are fields beside `url`
 #                  and `rev`: `submodules`, `leaveDotGit` and `commitObject`
 #                  for git (always false, false and null, since Composer
@@ -103,15 +105,6 @@ lock
 // {
   inherit storeName vcsKinds;
 
-  # The kind of an artifact: "file", or the version-control system of a
-  # checkout.
-  kindOf =
-    artifact:
-    let
-      kinds = builtins.filter (kind: artifact ? ${kind}) vcsKinds;
-    in
-    if kinds == [ ] then "file" else builtins.head kinds;
-
   # The artifacts by path. A version-control checkout of package
   # <vendor>/<name> is at <kind>/<vendor>/<name>.
   artifactsByPath = builtins.listToAttrs (
@@ -154,18 +147,4 @@ lock
       invalid "names ${lock.packages.${name}} for ${name}, but has no entry at that path"
     else
       true;
-
-  # The fetch name of an artifact: the last two parts of its path, made a
-  # valid store name. A file path is
-  # files/<vendor>/<package>/<sha1 of the URL>.<dist type>, and a checkout
-  # path is <kind>/<vendor>/<package>.
-  artifactName =
-    artifact:
-    let
-      parts = builtins.filter builtins.isString (builtins.split "/" artifact.path);
-      count = builtins.length parts;
-      package = builtins.elemAt parts (count - 2);
-      file = builtins.elemAt parts (count - 1);
-    in
-    storeName "${package}-${file}";
 }

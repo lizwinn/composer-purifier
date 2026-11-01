@@ -168,7 +168,36 @@ entry with its hash, and the hash of `composer.lock`.
 A lockfile made from the current `composer.lock` is left unchanged. After a
 change, `lock` keeps the hashes of downloads the old lockfile already names
 and fetches only new ones. `lock --force` writes the lockfile again
-regardless.
+regardless. A relock from the same `composer.lock` writes the same bytes.
+
+The lockfile also maps every package of `composer.lock` to its download,
+in its `packages` field. The downloads are the entries of the shared
+[purifier](https://github.com/nix-purifiers/purifier) library, which
+fetches them and lays them out in Composer's cache directory.
+
+## Errors
+
+The Nix build and `composer-purifier install` check the lockfile before
+they use it, and each failure says what is wrong and which command fixes
+it:
+
+| Mistake | Message |
+| --- | --- |
+| `composer.lock` changed, for example by `composer require`, and `lock` has not run since | `composer.lock changed after composer-purifier.lock.json was written. Run composer-purifier lock.` |
+| The lockfile was edited and lost or gained a package | `… names no download for <package>, which composer.lock has.` or `… names <package>, which composer.lock does not have.`, followed by `Run composer-purifier lock --force to write it again.` |
+| The lockfile was edited and a package points at a missing entry | `… names <path> for <package>, but has no entry at that path. Run composer-purifier lock --force …` |
+| The lockfile is not valid JSON, has no `packages`, or has an entry without a hash | the problem, followed by `Run composer-purifier lock --force …` |
+| The lockfile is from another version of composer-purifier | `… has lock format version <n>; this composer-purifier reads version 2. Run composer-purifier lock --force …` |
+| A hash in the lockfile was edited | Nix rejects the download: `hash mismatch in fixed-output derivation`, with the locked hash and the hash of the download |
+| `composer.json` changed and `composer update` has not run | `lock` stops with `composer.lock is out of date with composer.json. Run composer update --lock first.` |
+
+## Projects tried
+
+- [composer/composer](https://github.com/composer/composer) at its 2.10.3
+  release (commit `f0de0bf`), 36 downloads with its `require-dev`
+  packages. `lock` took about two seconds, the audit included, since
+  Composer downloads in parallel. The `real-world-composer` check builds it
+  with its locked dependencies and runs its `composer` executable.
 
 `composer.lock` is the same on every system: Composer packages are PHP
 source, and the platform requirements of `composer.lock` go to the PHP of
@@ -183,6 +212,12 @@ the build. One lockfile serves x86_64-linux and aarch64-linux alike.
 - The hash of a GitHub dist is the hash of the zip archive that GitHub
   generates. If GitHub changes how it generates archives, the fetch fails
   with a hash mismatch, and `lock --force` records the new hashes.
+- A test runner that downloads its own tools when it first runs works only
+  with the network. symfony/phpunit-bridge's `simple-phpunit`, which
+  composer/composer uses, installs PHPUnit with Composer the first time it
+  runs, and that download is not part of `composer.lock`. A project that
+  needs its tests to run offline requires `phpunit/phpunit` in
+  `require-dev` instead.
 - The offline installs set `COMPOSER_POLICY=0`, which turns off the
   install-time policy of Composer 2.10. That policy fetches malware and
   advisory lists from the package repositories, which an offline install
@@ -191,7 +226,13 @@ the build. One lockfile serves x86_64-linux and aarch64-linux alike.
 ## Tests
 
 `nix flake check` runs the checks of `tests/default.nix` in the sandbox,
-and the CI workflow runs them on each push to `main`:
+and the CI workflow runs them on each push to `main`, on an x86_64-linux
+and an aarch64-linux runner. `tests/unit/functions.php` unit-tests the
+URL-to-path rule, the parsing of sources and the lockfile check. Other
+checks reject each faulty lockfile of `tests/derive-negative-fixtures.sh`,
+relock a fixture byte for byte, and build composer/composer. The CI
+workflow also builds `tests/tampered-hash.nix`, which Nix has to reject.
+The fixtures are:
 
 - `tests/fixtures/app` needs `ext-bz2`, which the default nixpkgs PHP does
   not load.

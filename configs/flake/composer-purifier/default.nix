@@ -67,6 +67,7 @@
             checks = import ../../../tests {
               inherit pkgs;
               overlay = self.overlays.default;
+              inherit (inputs.purifier.lib) purifier;
               composerSource = inputs.composer-src;
             };
             treefmt.programs.nixfmt.enable = true;

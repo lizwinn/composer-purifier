@@ -33,6 +33,9 @@
   makeBinaryWrapper,
   # The PHP that the default PHP of a build adds extensions to.
   php,
+  # The `purifier` library namespace (lib.purifier of
+  # github:nix-purifiers/purifier), which fetches the lockfile entries.
+  purifier,
 }@setArgs:
 {
   # The root of the Composer project: the directory of composer.json.
@@ -52,7 +55,7 @@
   # The Nix path of each `path` repository outside the project directory,
   # by the URL that composer.json gives it: { "../lib" = ../lib; }.
   pathRepositories ? { },
-  # Replaces the built-in fetcher of dists; see fetch.nix.
+  # Replaces nixpkgs' fetchurl for dists; see cache.nix.
   fetchurl ? null,
   # Replaces nixpkgs' fetchers of version-control checkouts, by name; see
   # cache.nix.
@@ -63,7 +66,14 @@
 }:
 let
   lock = import ./lock.nix { inherit lockFile; };
-  cache = callPackage ./cache.nix { inherit lockFile fetchurl vcsFetchers; };
+  cache = callPackage ./cache.nix {
+    inherit
+      lockFile
+      fetchurl
+      vcsFetchers
+      purifier
+      ;
+  };
 
   composerJson = builtins.fromJSON (builtins.readFile (src + "/composer.json"));
   composerLockFile = src + "/composer.lock";
