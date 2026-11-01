@@ -68,7 +68,7 @@
             checks = import ../../../tests {
               inherit pkgs;
               overlay = self.overlays.default;
-              inherit (self.lib.composer-purifier) buildComposerProject readLock;
+              inherit (self.lib.composer-purifier) readLock;
               inherit (inputs.purifier.lib) purifier;
               composerSource = inputs.composer-src;
             };

@@ -8,9 +8,8 @@
 # to build the same derivation again and compare the two outputs.
 let
   flake = builtins.getFlake (toString ./..);
-  pkgs = flake.inputs.nixpkgs.legacyPackages.${builtins.currentSystem};
+  pkgs = flake.inputs.nixpkgs.legacyPackages.${builtins.currentSystem}.extend flake.overlays.default;
 in
-(flake.lib.composer-purifier.buildComposerProject {
-  inherit pkgs;
+(pkgs.buildComposerProject {
   src = ./fixtures/app;
 }).packages.composer-purifier-fixture-app

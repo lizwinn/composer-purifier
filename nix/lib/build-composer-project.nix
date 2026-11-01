@@ -1,9 +1,16 @@
 # buildComposerProject: the sandboxed builds of a Composer project, from the
-# lockfile that `composer-purifier lock` writes next to composer.lock. The
-# flake publishes it as `lib.composer-purifier.buildComposerProject`
-# (lib-overlays/default):
+# lockfile that `composer-purifier lock` writes next to composer.lock.
 #
-#   lib.composer-purifier.buildComposerProject { inherit pkgs; src = ./.; }
+# The file is a package for callPackage: the first argument set is what it
+# takes from the package set, and the result is the builder. The
+# composer-purifier overlay (`overlays.default`) adds it to the package set
+# as `buildComposerProject`, so a package written for callPackage takes it
+# like any other dependency:
+#
+#   { buildComposerProject }:
+#   (buildComposerProject { src = ./.; }).packages.my-vendor-my-app
+#
+# and `buildComposerProject.override` replaces what it takes from the set.
 #
 # `fetchers` goes unchanged to fetchEntry and tree of the purifier library,
 # so a company mirror or credentials go into `fetchers.fetchurl`, and a
@@ -32,9 +39,18 @@
 #   cache            the Composer cache of the lockfile (cache.nix)
 #   php              the PHP of the packages, with the extensions the
 #                    project requires (php.nix)
-{ lib, purifier }:
 {
-  pkgs,
+  lib,
+  stdenvNoCC,
+  runCommand,
+  makeBinaryWrapper,
+  callPackage,
+  # The `purifier` library namespace (lib.purifier of
+  # github:nix-purifiers/purifier). The overlay passes the one of this
+  # flake's pin.
+  purifier,
+}:
+{
   # The root of the Composer project: the directory of composer.json.
   src,
   # Replaces fetchers of the purifier library, by name (fetchurl, fetchgit,
@@ -75,23 +91,23 @@ let
   inherit (locked) composerJson lockedPackages;
 
   entries = {
-    entries = purifier.entriesFor pkgs.stdenv.hostPlatform.system locked;
+    entries = purifier.entriesFor stdenvNoCC.hostPlatform.system locked;
     inherit (locked) byName;
   };
-  cache = pkgs.callPackage ./cache.nix { inherit entries fetchers purifier; };
+  cache = callPackage ./cache.nix { inherit entries fetchers purifier; };
 
   phpOf =
     withDev:
     if php != null then
       php
     else
-      pkgs.callPackage ./php.nix {
+      callPackage ./php.nix {
         inherit composerJson;
         composerLock = lockedPackages;
         dev = withDev;
       };
 
-  offlineLock = pkgs.callPackage ./offline-lock.nix {
+  offlineLock = callPackage ./offline-lock.nix {
     inherit pathRepositories entries;
     composerLock = lockedPackages;
     inherit (cache) fetch;
@@ -153,7 +169,7 @@ let
       ++ lib.optional noScripts "--no-scripts"
       ++ composerFlags;
     in
-    pkgs.stdenvNoCC.mkDerivation {
+    stdenvNoCC.mkDerivation {
       pname = if withDev then "${pname}-dev" else pname;
       inherit version;
       src = source;
@@ -162,7 +178,7 @@ let
       nativeBuildInputs = [
         projectPhp
         projectPhp.packages.composer
-        pkgs.makeBinaryWrapper
+        makeBinaryWrapper
       ];
 
       dontConfigure = true;
@@ -199,7 +215,7 @@ let
     map (
       bin:
       lib.nameValuePair (binName bin) (
-        pkgs.runCommand "${pname}-${binName bin}" { meta.mainProgram = binName bin; } ''
+        runCommand "${pname}-${binName bin}" { meta.mainProgram = binName bin; } ''
           mkdir -p $out/bin
           ln -s ${installed}/bin/${binName bin} $out/bin/${binName bin}
         ''
@@ -214,7 +230,7 @@ let
     let
       archivePhp = phpOf false;
     in
-    pkgs.stdenvNoCC.mkDerivation {
+    stdenvNoCC.mkDerivation {
       name = "${pname}-${version}.zip";
       src = source;
       strictDeps = true;
@@ -236,7 +252,7 @@ let
 
   tests =
     if (composerJson.scripts or { }) ? test then
-      pkgs.runCommand "${pname}-tests"
+      runCommand "${pname}-tests"
         {
           nativeBuildInputs = [
             withDevPackages.php

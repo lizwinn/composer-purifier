@@ -85,8 +85,6 @@
 {
   pkgs,
   overlay,
-  # lib.composer-purifier.buildComposerProject of this flake.
-  buildComposerProject,
   # lib.composer-purifier.readLock of this flake.
   readLock,
   # The `purifier` library namespace (lib.purifier of
@@ -101,7 +99,10 @@ let
   inherit (purified) lib runCommand unzip;
   command = purified.composer-purifier.composer-purifier;
 
-  build = arguments: buildComposerProject ({ pkgs = purified; } // arguments);
+  # Every fixture builds the way a consumer's package does: through
+  # buildComposerProject of a package set the overlay applies to.
+  inherit (purified) buildComposerProject;
+  build = buildComposerProject;
 
   app = build { src = ./fixtures/app; };
   appPackage = app.packages.composer-purifier-fixture-app;

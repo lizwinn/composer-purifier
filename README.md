@@ -3,9 +3,8 @@
 composer-purifier builds Composer projects with Nix. Nix reads the
 downloads that `composer install` needs from `composer.lock`, and a second
 lockfile, `composer-purifier.lock.json`, holds the hashes that
-`composer.lock` lacks. Nix fetches those downloads, and `composer install` runs in the Nix
-sandbox with the network disabled. The project commits no generated Nix
-files. composer-purifier meets the
+`composer.lock` lacks. Nix fetches those downloads, and `composer install`
+runs in the Nix sandbox with the network disabled. composer-purifier meets the
 [purifier contract](https://github.com/nix-purifiers/purifier/blob/main/CONTRACT.md),
 so its builder, commands and checks have the same shape as those of the
 other nix-purifiers.
@@ -24,7 +23,8 @@ reports a problem with a locked package. The audit follows the `audit` and
 `policy` settings of `composer.json`. `lock --no-audit` skips it. Commit
 `composer-purifier.lock.json` next to `composer.lock`.
 
-The builder is in the flake's library:
+The flake's overlay adds the builder `buildComposerProject` to the package
+set, where nixpkgs keeps its own builders:
 
 ```nix
 {
@@ -34,17 +34,24 @@ The builder is in the flake's library:
   outputs = { nixpkgs, composer-purifier, ... }:
     let
       system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
-      app = composer-purifier.lib.composer-purifier.buildComposerProject {
-        inherit pkgs;
-        src = ./.;
-      };
+      pkgs = nixpkgs.legacyPackages.${system}.extend composer-purifier.overlays.default;
+      app = pkgs.buildComposerProject { src = ./.; };
     in
     {
       packages.${system} = app.packages;
       checks.${system}.tests = app.tests;
     };
 }
+```
+
+A package written for `callPackage` takes the builder by name, like any
+other builder. `buildComposerProject.override` replaces the packages that
+the builder takes from the package set.
+
+```nix
+# package.nix
+{ buildComposerProject }:
+(buildComposerProject { src = ./.; }).packages.my-vendor-my-app
 ```
 
 The result of `buildComposerProject` names every output from
@@ -63,8 +70,8 @@ The result of `buildComposerProject` names every output from
 - `fetches` lists the lockfile entries that the builds fetch.
 
 `nix/lib/build-composer-project.nix` documents the builder's arguments:
-`pkgs`, `src`, `fetchers`, `lockFile`, `composerLock`, `php`, `dev`,
-`noScripts`, `composerFlags`, `pathRepositories` and `srcFilter`.
+`src`, `fetchers`, `lockFile`, `composerLock`, `php`, `dev`, `noScripts`,
+`composerFlags`, `pathRepositories` and `srcFilter`.
 `lib.composer-purifier.readLock { src; }` gives the lock in memory of the
 contract: the download entries, the outputs, and the problems of the
 lockfiles, each naming the command that fixes it.
@@ -77,14 +84,14 @@ command takes `--lockfile <path>`, or reads the path from the environment
 variable `COMPOSER_PURIFIER_LOCKFILE`, so a dev shell that sets the
 variable to the `lockFile` it passes needs no flag.
 
-## Everyday loop
+## Development loop
 
 `nix develop github:nix-purifiers/composer-purifier` gives PHP, the
 `composer-purifier` command, its `composer`, and phpactor. The loop is
 Composer's own:
 
 1. `composer-purifier prefetch` fetches what the lockfile names into the
-   Nix store (see [Offline work](#offline-work)).
+   Nix store (see [Working offline](#working-offline)).
 2. `composer install` installs the project from those downloads, offline,
    with a PHP that has the extensions the project requires.
 3. The project runs as usual: its `bin` scripts with `php`, its tests with
@@ -101,7 +108,7 @@ Composer's own:
 The next `composer install` after a change to `composer.lock` stops until
 the lockfile and the prefetch catch up, and says which command to run.
 
-## Offline work
+## Working offline
 
 `composer-purifier prefetch` builds three things with `nix-build`: the
 Composer cache of the lockfile, Composer on the PHP that the project
@@ -120,11 +127,10 @@ fails to install offline, because the network is disabled.
 
 PHP editors and language servers, such as phpactor and Intelephense, read
 the project's `vendor` directory. A Composer dist holds the full source of
-its package, so `composer install` after a prefetch gives the editor
-everything, with no separate source downloads. The development shell has
-phpactor.
+its package, so `composer install` after a prefetch gives the editor the
+full source of every package. The development shell has phpactor.
 
-## Errors and fixes
+## Troubleshooting
 
 The Nix build, `composer-purifier prefetch` and the offline
 `composer install` check the lockfile before they use it. Each failure says
@@ -149,10 +155,12 @@ Nix derives every URL, mirror and cache path from `composer.lock`. The
 lockfile also holds `contentHash`, the SHA-256 of its other fields, so an
 edit by hand fails before any download.
 
-## Sources supported and refused
+## Supported language repositories
 
 Every kind of package source that `composer.lock` can hold builds, except
-Perforce.
+Perforce. The sources are Packagist and other Composer repositories with
+dists, `package` repositories that name an archive URL, version-control
+repositories, and `path` repositories.
 
 - A dist, the archive that Packagist and most repositories serve, is
   fetched from its URL and the mirrors of its repository, as
@@ -249,8 +257,8 @@ directory, since flakes read only tracked files:
   outputs = { nixpkgs, composer-purifier, composer-src, ... }:
     let
       system = "x86_64-linux";
-      composer = composer-purifier.lib.composer-purifier.buildComposerProject {
-        pkgs = nixpkgs.legacyPackages.${system};
+      pkgs = nixpkgs.legacyPackages.${system}.extend composer-purifier.overlays.default;
+      composer = pkgs.buildComposerProject {
         src = composer-src;
         lockFile = ./composer-purifier.lock.json;
       };

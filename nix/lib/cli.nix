@@ -56,10 +56,7 @@ let
     };
     purifier = library;
   };
-  build = import ./build-composer-project.nix {
-    inherit (pkgs) lib;
-    purifier = library;
-  };
+  build = pkgs.callPackage ./build-composer-project.nix { purifier = library; };
 in
 {
   inherit cache;
@@ -71,7 +68,6 @@ in
   };
   release =
     (build {
-      inherit pkgs;
       src = dir;
       lockFile = lockPath;
     }).release;
