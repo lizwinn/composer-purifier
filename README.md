@@ -29,9 +29,27 @@ reports a problem with a locked package. The audit follows the `audit` and
 and names `composer update --lock`. `composer.lock` is written by
 Composer, or by `composer-purifier update`.
 
+Then build the project from the same directory, with no Nix file added to
+it. `<name>` is the `name` of `composer.json` with `/` replaced by `-`, such
+as `my-vendor-my-app`:
+
+```zsh
+nix build --impure --expr '
+  let
+    purifier = builtins.getFlake "github:nix-purifiers/composer-purifier";
+    pkgs = import purifier.inputs.nixpkgs {
+      system = builtins.currentSystem;
+      overlays = [ purifier.overlays.default ];
+    };
+  in
+  (pkgs.composer-purifier.buildComposerProject { src = ./.; }).packages.<name>'
+```
+
 The flake's overlay adds one attribute to the package set, the scope
 `composer-purifier`. The scope holds the builder `buildComposerProject`
-beside the `composer-purifier` command:
+beside the `composer-purifier` command. A flake that packages the project
+applies the overlay and calls the builder. It can live in the repository of
+the project or in another one:
 
 ```nix
 {
@@ -51,16 +69,9 @@ beside the `composer-purifier` command:
 }
 ```
 
-A package written for `callPackage` takes the scope by name.
 `composer-purifier.buildComposerProject.override` replaces the packages that
 the builder takes, and `composer-purifier.overrideScope` replaces what
 everything in the scope shares.
-
-```nix
-# package.nix
-{ composer-purifier }:
-(composer-purifier.buildComposerProject { src = ./.; }).packages.my-vendor-my-app
-```
 
 The result of `buildComposerProject` names every output from
 `composer.json`, which Nix reads at evaluation time:
@@ -248,50 +259,28 @@ Other limits:
 
 ### Composer itself
 
-[composer/composer](https://github.com/composer/composer) belongs to
-someone else, so its build stays external: its own `composer.lock` stays
-in its tree, and a packaging flake keeps the purifier lockfile. Check out
-the release you want to build, and write the lockfile into the directory
-of the flake:
+[composer/composer](https://github.com/composer/composer) is built the way
+the Quickstart builds any project. Check out the release you want, lock it,
+and build its `composer` executable from the checkout:
 
 ```zsh
 git clone --branch 2.10.3 https://github.com/composer/composer
 cd composer
-nix run github:nix-purifiers/composer-purifier -- lock --lockfile ../composer-purifier.lock.json
-cd ..
-```
-
-The flake in that directory builds the release from the same tag. Add
-`flake.nix` and `composer-purifier.lock.json` to the git repository of the
-directory, since flakes read only tracked files:
-
-```nix
-{
-  inputs.composer-purifier.url = "github:nix-purifiers/composer-purifier";
-  inputs.nixpkgs.follows = "composer-purifier/nixpkgs";
-  inputs.composer-src = {
-    url = "github:composer/composer/2.10.3";
-    flake = false;
-  };
-
-  outputs = { nixpkgs, composer-purifier, composer-src, ... }:
-    let
-      system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system}.extend composer-purifier.overlays.default;
-      composer = pkgs.composer-purifier.buildComposerProject {
-        src = composer-src;
-        lockFile = ./composer-purifier.lock.json;
-      };
-    in
-    {
-      packages.${system} = composer.packages;
+nix run github:nix-purifiers/composer-purifier -- lock
+nix build --impure --expr '
+  let
+    purifier = builtins.getFlake "github:nix-purifiers/composer-purifier";
+    pkgs = import purifier.inputs.nixpkgs {
+      system = builtins.currentSystem;
+      overlays = [ purifier.overlays.default ];
     };
-}
+  in
+  (pkgs.composer-purifier.buildComposerProject { src = ./.; }).packages.composer'
+./result/bin/composer --version
 ```
 
-`nix run .#composer -- --version` then runs the Composer that Nix built.
-To move to a newer release, change the tag in `flake.nix`, check out the
-same tag, and run the `lock` command again.
+To move to a newer release, check out its tag and run the same commands
+again.
 
 ## Credits
 
