@@ -29,8 +29,9 @@ reports a problem with a locked package. The audit follows the `audit` and
 and names `composer update --lock`. `composer.lock` is written by
 Composer, or by `composer-purifier update`.
 
-The flake's overlay adds the builder `buildComposerProject` to the package
-set, where nixpkgs keeps its own builders:
+The flake's overlay adds one attribute to the package set, the scope
+`composer-purifier`. The scope holds the builder `buildComposerProject`
+beside the `composer-purifier` command:
 
 ```nix
 {
@@ -41,7 +42,7 @@ set, where nixpkgs keeps its own builders:
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system}.extend composer-purifier.overlays.default;
-      app = pkgs.buildComposerProject { src = ./.; };
+      app = pkgs.composer-purifier.buildComposerProject { src = ./.; };
     in
     {
       packages.${system} = app.packages;
@@ -50,14 +51,15 @@ set, where nixpkgs keeps its own builders:
 }
 ```
 
-A package written for `callPackage` takes the builder by name, like any
-other builder. `buildComposerProject.override` replaces the packages that
-the builder takes from the package set.
+A package written for `callPackage` takes the scope by name.
+`composer-purifier.buildComposerProject.override` replaces the packages that
+the builder takes, and `composer-purifier.overrideScope` replaces what
+everything in the scope shares.
 
 ```nix
 # package.nix
-{ buildComposerProject }:
-(buildComposerProject { src = ./.; }).packages.my-vendor-my-app
+{ composer-purifier }:
+(composer-purifier.buildComposerProject { src = ./.; }).packages.my-vendor-my-app
 ```
 
 The result of `buildComposerProject` names every output from
@@ -276,7 +278,7 @@ directory, since flakes read only tracked files:
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system}.extend composer-purifier.overlays.default;
-      composer = pkgs.buildComposerProject {
+      composer = pkgs.composer-purifier.buildComposerProject {
         src = composer-src;
         lockFile = ./composer-purifier.lock.json;
       };

@@ -16,15 +16,14 @@
       inherit (libOverlays) default;
     };
 
-    # The packages are the `default` entry of this flake's package overlay
-    # registry (pkg-overlays/): the package set applies it by default, and
-    # the flake exports it as `pkgOverlays` and as the plain
-    # `overlays.default`.
-    nixpkgs = {
-      packages.export.enabled = true;
-    };
   };
 
+  # The scope `composer-purifier` is the `default` entry of the package
+  # overlay registry of this flake (pkg-overlays/): the package set applies
+  # it by default, and the flake exports it as `pkgOverlays` and as the
+  # plain `overlays.default`. The packages output holds the command alone,
+  # because the builder in the scope is a function.
+  #
   # `nix run github:nix-purifiers/composer-purifier -- lock` writes
   # composer-purifier.lock.json for the Composer project in the current
   # directory. `nix develop` gives PHP, the composer-purifier command, its
@@ -33,6 +32,7 @@
   perSystem =
     { config, pkgs, ... }:
     {
+      packages.composer-purifier = pkgs.composer-purifier.composer-purifier;
       packages.default = config.packages.composer-purifier;
       devShells.default = pkgs.mkShell {
         packages = [

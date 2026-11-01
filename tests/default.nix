@@ -104,8 +104,9 @@ let
   command = purified.composer-purifier.composer-purifier;
 
   # Every fixture builds the way a consumer's package does: through
-  # buildComposerProject of a package set the overlay applies to.
-  inherit (purified) buildComposerProject;
+  # composer-purifier.buildComposerProject of a package set the overlay
+  # applies to.
+  inherit (purified.composer-purifier) buildComposerProject;
   build = buildComposerProject;
 
   app = build { src = ./fixtures/app; };

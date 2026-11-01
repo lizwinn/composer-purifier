@@ -10,6 +10,6 @@ let
   flake = builtins.getFlake (toString ./..);
   pkgs = flake.inputs.nixpkgs.legacyPackages.${builtins.currentSystem}.extend flake.overlays.default;
 in
-(pkgs.buildComposerProject {
+(pkgs.composer-purifier.buildComposerProject {
   src = ./fixtures/app;
 }).packages.composer-purifier-fixture-app

@@ -1,11 +1,23 @@
 # SPDX-License-Identifier: MIT
 #
-# The default package overlay. It adds the packages of pkgs/ under
-# `pkgs.composer-purifier`: `.composer-purifier`, the command with `lock`,
-# `update`, `prefetch` and `publish`, and the `composer` that runs a
-# prefetched install offline. It adds the builder `pkgs.buildComposerProject`
-# (nix/lib/build-composer-project.nix) beside them, where nixpkgs keeps its
-# own builders, so a package written for callPackage takes it by name.
+# The default package overlay. It adds one attribute to the package set:
+# the scope `pkgs.composer-purifier`, made with lib.makeScope. The scope
+# holds the packages of pkgs/ and the builder:
+#
+#   composer-purifier.composer-purifier        the command, with `lock`,
+#                                              `update`, `prefetch` and
+#                                              `publish`, and the
+#                                              `composer` that runs a
+#                                              prefetched install offline
+#   composer-purifier.buildComposerProject     the builder
+#                                              (nix/lib/build-composer-project.nix),
+#                                              a package for callPackage in
+#                                              the scope
+#
+# A package written for callPackage takes the scope by name, as
+# `{ composer-purifier }:`. `composer-purifier.overrideScope` replaces what
+# everything in the scope shares, and `buildComposerProject.override`
+# replaces what the builder takes.
 #
 # The builder and the command take the purifier library
 # (github:nix-purifiers/purifier) of this flake's pin: the builder as the
@@ -20,15 +32,16 @@ in
     let
       added = packages final prev;
     in
-    added
-    // {
-      buildComposerProject = final.callPackage ../../nix/lib/build-composer-project.nix {
-        purifier = import closure-inputs.purifier { inherit (final) lib; };
-      };
-      composer-purifier = added.composer-purifier // {
-        composer-purifier = added.composer-purifier.composer-purifier.override {
-          purifierSource = closure-inputs.purifier;
-        };
-      };
+    {
+      composer-purifier = added.composer-purifier.overrideScope (
+        self: super: {
+          composer-purifier = super.composer-purifier.override {
+            purifierSource = closure-inputs.purifier;
+          };
+          buildComposerProject = self.callPackage ../../nix/lib/build-composer-project.nix {
+            purifier = import closure-inputs.purifier { inherit (final) lib; };
+          };
+        }
+      );
     };
 }

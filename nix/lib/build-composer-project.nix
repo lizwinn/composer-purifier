@@ -3,14 +3,16 @@
 #
 # The file is a package for callPackage: the first argument set is what it
 # takes from the package set, and the result is the builder. The
-# composer-purifier overlay (`overlays.default`) adds it to the package set
-# as `buildComposerProject`, so a package written for callPackage takes it
-# like any other dependency:
+# composer-purifier overlay (`overlays.default`) adds it to the scope
+# `composer-purifier` of the package set, so a package written for
+# callPackage takes the scope by name:
 #
-#   { buildComposerProject }:
-#   (buildComposerProject { src = ./.; }).packages.my-vendor-my-app
+#   { composer-purifier }:
+#   (composer-purifier.buildComposerProject { src = ./.; }).packages.my-vendor-my-app
 #
-# and `buildComposerProject.override` replaces what it takes from the set.
+# `composer-purifier.buildComposerProject.override` replaces what the
+# builder takes, and `composer-purifier.overrideScope` replaces what
+# everything in the scope shares.
 #
 # `fetchers` goes unchanged to fetchEntry and tree of the purifier library,
 # so a company mirror or credentials go into `fetchers.fetchurl`, and a

@@ -7,7 +7,7 @@
 #   offlineLock  the composer.lock that the composer of this package reads
 #                for an offline install (offline-lock.nix), with the path
 #                repositories as they are on the file system
-#   release      the dist archive of the project, as buildComposerProject
+#   release      the dist archive of the project, as the builder
 #                builds it in the sandbox
 #
 # Arguments:
