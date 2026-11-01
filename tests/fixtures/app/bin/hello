@@ -1,0 +1,16 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use Monolog\Formatter\LineFormatter;
+use Monolog\Handler\StreamHandler;
+use Monolog\Logger;
+
+$handler = new StreamHandler('php://stdout');
+$handler->setFormatter(new LineFormatter("%message%\n"));
+$logger = new Logger('fixture');
+$logger->pushHandler($handler);
+$logger->info(Fixture\Greeting::text());

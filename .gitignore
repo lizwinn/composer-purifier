@@ -1,0 +1,5 @@
+/result
+/result-*
+/tests/fixtures/*/vendor/
+/tests/fixtures/*/.composer-purifier/
+/tests/fixtures/*/installed-by-script
