@@ -25,7 +25,7 @@
 }:
 let
   pkgs = import nixpkgs { inherit system; };
-  library = import (/. + purifier + "/nix/lib") { inherit (pkgs) lib; };
+  library = import (/. + purifier) { inherit (pkgs) lib; };
   dir = /. + projectDir;
   composerLock = builtins.fromJSON (builtins.readFile (dir + "/composer.lock"));
   php = pkgs.callPackage ./php.nix {

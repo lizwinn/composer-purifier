@@ -18,7 +18,7 @@
 }:
 let
   pkgs = import nixpkgs { inherit system; };
-  library = import (/. + purifier + "/nix/lib") { inherit (pkgs) lib; };
+  library = import (/. + purifier) { inherit (pkgs) lib; };
 in
 library.fetchEntry { inherit pkgs; } {
   path = "prefetch/checkout";
