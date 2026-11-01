@@ -86,6 +86,7 @@ let
     text = ''
       usage() {
         echo "usage: composer-purifier lock [--lockfile <path>] [--force] [--no-audit]" >&2
+        echo "       composer-purifier update [--lockfile <path>] [--no-audit] [<package>...]" >&2
         echo "       composer-purifier prefetch [--lockfile <path>]" >&2
         echo "       composer-purifier publish [--lockfile <path>] <directory>" >&2
         exit 2
@@ -95,9 +96,10 @@ let
       command="$1"
       shift
 
-      # --lockfile names a composer-purifier.lock.json outside the project,
-      # for a project whose source does not hold it.
-      lockFile=composer-purifier.lock.json
+      # --lockfile, or COMPOSER_PURIFIER_LOCKFILE, names a
+      # composer-purifier.lock.json outside the project, for a project whose
+      # source does not hold it.
+      lockFile="''${COMPOSER_PURIFIER_LOCKFILE:-composer-purifier.lock.json}"
       audit=1
       force=0
       operands=()
@@ -114,46 +116,68 @@ let
         esac
       done
       lockFile="$(realpath -m "$lockFile")"
+      # The GC roots of `prefetch` lie beside the lockfile.
+      roots="$(dirname "$lockFile")/.composer-purifier"
+
+      # Writes the lockfile from composer.lock as it is (src/lock.php).
+      lock() {
+        lockArguments=(--lockfile "$lockFile")
+        if [ "$force" = 1 ]; then
+          lockArguments+=(--force)
+        fi
+        # The install-time policy of Composer is off in the offline
+        # installs, so the advisory and malware check runs here, online.
+        if [ "$audit" = 1 ]; then
+          composer audit --locked
+        fi
+        COMPOSER_PURIFIER_HASH_CHECKOUT="''${COMPOSER_PURIFIER_HASH_CHECKOUT:-${lib.getExe hashCheckout}}" \
+          php ${scripts}/lock.php ${defaultComposer}/share/php/composer/vendor/autoload.php "''${lockArguments[@]}"
+      }
 
       case "$command" in
         lock)
           [ ''${#operands[@]} -eq 0 ] || usage
-          lockArguments=(--lockfile "$lockFile")
-          if [ "$force" = 1 ]; then
-            lockArguments+=(--force)
+          lock
+          ;;
+        update)
+          # Composer resolves on the PHP that the project requires, so that
+          # its platform requirements hold; the purifier lockfile plays no
+          # part in that PHP.
+          if [ -n "''${COMPOSER_PURIFIER_COMPOSER:-}" ]; then
+            projectComposer="$COMPOSER_PURIFIER_COMPOSER"
+          else
+            projectComposer="$(nix-build ${nixLib}/cli.nix ${nixArguments} \
+              --attr composer \
+              --argstr projectDir "$PWD" \
+              --argstr lockFile "$lockFile" \
+              --no-out-link)"
           fi
-          # The install-time policy of Composer is off in the offline
-          # installs, so the advisory and malware check runs here, online.
-          if [ "$audit" = 1 ]; then
-            composer audit --locked
-          fi
-          COMPOSER_PURIFIER_HASH_CHECKOUT="''${COMPOSER_PURIFIER_HASH_CHECKOUT:-${lib.getExe hashCheckout}}" \
-            exec php ${scripts}/lock.php ${defaultComposer}/share/php/composer/vendor/autoload.php "''${lockArguments[@]}"
+          "$projectComposer/bin/composer" update --no-install --no-interaction --no-audit "''${operands[@]}"
+          lock
           ;;
         prefetch)
           [ ''${#operands[@]} -eq 0 ] || usage
           # Stops with the command to run when the lockfile is missing,
           # malformed, stale or edited (src/check.php).
           php ${scripts}/check.php "$lockFile"
-          mkdir -p .composer-purifier
+          mkdir -p "$roots"
           if [ -n "''${COMPOSER_PURIFIER_CACHE:-}" ] && [ -n "''${COMPOSER_PURIFIER_COMPOSER:-}" ] && [ -n "''${COMPOSER_PURIFIER_OFFLINE_LOCK:-}" ]; then
-            ln -sfn "$COMPOSER_PURIFIER_CACHE" .composer-purifier/cache
-            ln -sfn "$COMPOSER_PURIFIER_COMPOSER" .composer-purifier/composer
-            ln -sfn "$COMPOSER_PURIFIER_OFFLINE_LOCK" .composer-purifier/offlineLock
+            ln -sfn "$COMPOSER_PURIFIER_CACHE" "$roots/cache"
+            ln -sfn "$COMPOSER_PURIFIER_COMPOSER" "$roots/composer"
+            ln -sfn "$COMPOSER_PURIFIER_OFFLINE_LOCK" "$roots/offlineLock"
           else
             for attribute in cache composer offlineLock; do
               nix-build ${nixLib}/cli.nix ${nixArguments} \
                 --attr "$attribute" \
                 --argstr projectDir "$PWD" \
                 --argstr lockFile "$lockFile" \
-                --out-link ".composer-purifier/$attribute" >/dev/null
+                --out-link "$roots/$attribute" >/dev/null
             done
           fi
-          # The offline `composer install` checks the same lockfile, and
-          # that it has not changed since this prefetch.
-          printf '%s\n' "$lockFile" > .composer-purifier/lockfile
-          ${lockHash} > .composer-purifier/lock-hash
-          echo "composer-purifier: prefetched the downloads of $lockFile into .composer-purifier; \`composer install\` now runs offline." >&2
+          # The offline `composer install` checks that the lockfile has not
+          # changed since this prefetch.
+          ${lockHash} > "$roots/lock-hash"
+          echo "composer-purifier: prefetched the downloads of $lockFile into $roots; \`composer install\` now runs offline." >&2
           ;;
         publish)
           [ ''${#operands[@]} -eq 1 ] || usage
@@ -184,30 +208,33 @@ let
       # from the prefetched files, with Composer on the PHP the project
       # requires. Every other subcommand, and `install` before a prefetch,
       # is plain Composer.
+      # The lockfile is the one of COMPOSER_PURIFIER_LOCKFILE, or the one in
+      # the current directory, and the prefetched files lie beside it.
+      lockFile="$(realpath -m "''${COMPOSER_PURIFIER_LOCKFILE:-composer-purifier.lock.json}")"
+      roots="$(dirname "$lockFile")/.composer-purifier"
       projectComposer=${defaultComposer}
-      if [ -e .composer-purifier/composer ]; then
-        projectComposer="$(readlink -f .composer-purifier/composer)"
+      if [ -e "$roots/composer" ]; then
+        projectComposer="$(readlink -f "$roots/composer")"
       fi
-      if [ "''${1:-}" != install ] || [ ! -e .composer-purifier/cache ]; then
+      if [ "''${1:-}" != install ] || [ ! -e "$roots/cache" ]; then
         exec "$projectComposer/bin/composer" "$@"
       fi
 
-      lockFile="$(cat .composer-purifier/lockfile)"
       if ! php ${scripts}/check.php "$lockFile"; then
         echo "composer-purifier: then run \`composer-purifier prefetch\`, and \`composer install\` again." >&2
         exit 1
       fi
-      if [ "$(${lockHash})" != "$(cat .composer-purifier/lock-hash)" ]; then
-        echo "composer-purifier: composer-purifier.lock.json changed after the last prefetch. Run \`composer-purifier prefetch\`." >&2
+      if [ "$(${lockHash})" != "$(cat "$roots/lock-hash")" ]; then
+        echo "composer-purifier: $lockFile changed after the last prefetch. Run \`composer-purifier prefetch\`." >&2
         exit 1
       fi
-      cache="$(readlink -f .composer-purifier/cache)"
-      # Composer reads composer.json and the offline composer.lock from
-      # .composer-purifier, and the project paths stay relative to the
+      cache="$(readlink -f "$roots/cache")"
+      # Composer reads composer.json and the offline composer.lock from the
+      # prefetched files, and the project paths stay relative to the
       # current directory, since COMPOSER comes from the environment.
-      cp composer.json .composer-purifier/composer.json
-      cp --no-preserve=mode .composer-purifier/offlineLock .composer-purifier/composer.lock
-      export COMPOSER=.composer-purifier/composer.json
+      cp composer.json "$roots/composer.json"
+      cp --no-preserve=mode "$roots/offlineLock" "$roots/composer.lock"
+      export COMPOSER="$roots/composer.json"
       export COMPOSER_CACHE_DIR="$cache"
       export COMPOSER_CACHE_FILES_DIR="$cache/files"
       export COMPOSER_CACHE_READ_ONLY=1

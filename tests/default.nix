@@ -33,6 +33,10 @@
 #                          loop of tests/fixtures/app (`composer install`,
 #                          the bin, `composer test`) and of
 #                          tests/fixtures/sources runs with no network
+#   conformance-update     `composer-purifier update` on a project pinned at
+#                          old versions moves the named package, then every
+#                          package, and both lockfiles pass the stale check
+#                          after each run
 #   conformance-external   tests/fixtures/app builds from a source that
 #                          holds neither lockfile, with both given from
 #                          tests/external/app
@@ -485,6 +489,75 @@ in
         grep -q "outside the project" output
         test -f vendor/fixture/psr-clock/src/ClockInterface.php
         test -f vendor/fixture/psr-container/src/ContainerInterface.php
+        touch $out
+      '';
+
+  # A project that requires fixture/greeting and fixture/farewell at ^1.0
+  # from a package repository in composer.json, which offers 1.0.0 and
+  # 1.1.0 of each as local zips without a shasum. Both start pinned at
+  # 1.0.0. `update fixture/greeting` moves only greeting, and `update`
+  # moves farewell too; each time both lockfiles pass the stale check.
+  conformance-update =
+    runCommand "conformance-update-check"
+      {
+        nativeBuildInputs = [
+          command
+          app.php
+          purified.zip
+          purified.jq
+        ];
+        COMPOSER_PURIFIER_COMPOSER = app.php.packages.composer;
+        COMPOSER_PURIFIER_CACHE = app.cache;
+        COMPOSER_PURIFIER_OFFLINE_LOCK = app.php;
+      }
+      ''
+        ${commandEnvironment}
+        # The dists are local files, which Composer refuses to read while
+        # the network is disabled; the sandbox has no network either way.
+        unset COMPOSER_DISABLE_NETWORK
+        mkdir -p project/dists
+        cd project
+        packages='[]'
+        for name in greeting farewell; do
+          for version in 1.0.0 1.1.0; do
+            mkdir -p "src/$name-$version"
+            echo "{\"name\": \"fixture/$name\", \"version\": \"$version\"}" > "src/$name-$version/composer.json"
+            (cd "src/$name-$version" && zip -qX "$PWD/../../dists/$name-$version.zip" composer.json)
+            packages="$(jq -c --arg name "$name" --arg version "$version" --arg url "file://$PWD/dists/$name-$version.zip" \
+              '. + [{name: ("fixture/" + $name), version: $version, dist: {type: "zip", url: $url}}]' <<< "$packages")"
+          done
+        done
+        jq -n --argjson packages "$packages" '{
+          name: "fixture/update",
+          require: {"fixture/greeting": "^1.0", "fixture/farewell": "^1.0"},
+          repositories: [{type: "package", package: $packages}, {"packagist.org": false}]
+        }' > composer.json
+
+        version() {
+          jq -r --arg name "fixture/$1" '.packages[] | select(.name == $name) | .version' composer.lock
+        }
+        # The stale check of `composer-purifier prefetch`, with the store
+        # paths of the environment in place of its builds.
+        stale() {
+          composer-purifier prefetch
+        }
+
+        composer update --no-install --prefer-lowest --no-interaction
+        composer-purifier lock --no-audit
+        stale
+        test "$(version greeting)" = 1.0.0
+        test "$(version farewell)" = 1.0.0
+
+        composer-purifier update --no-audit fixture/greeting
+        stale
+        test "$(version greeting)" = 1.1.0
+        test "$(version farewell)" = 1.0.0
+
+        composer-purifier update --no-audit
+        stale
+        test "$(version greeting)" = 1.1.0
+        test "$(version farewell)" = 1.1.0
+        test "$(jq '.dists | length' composer-purifier.lock.json)" = 2
         touch $out
       '';
 

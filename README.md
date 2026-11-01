@@ -1,9 +1,9 @@
 # composer-purifier
 
-composer-purifier builds Composer projects with Nix. It records what
-`composer install` needs for the packages of `composer.lock` in a second
-lockfile, `composer-purifier.lock.json`, with the hash of each download.
-Nix fetches those downloads, and `composer install` runs in the Nix
+composer-purifier builds Composer projects with Nix. Nix reads the
+downloads that `composer install` needs from `composer.lock`, and a second
+lockfile, `composer-purifier.lock.json`, holds the hashes that
+`composer.lock` lacks. Nix fetches those downloads, and `composer install` runs in the Nix
 sandbox with the network disabled. The project commits no generated Nix
 files. composer-purifier meets the
 [purifier contract](https://github.com/nix-purifiers/purifier/blob/main/CONTRACT.md),
@@ -65,11 +65,17 @@ The result of `buildComposerProject` names every output from
 `nix/lib/build-composer-project.nix` documents the builder's arguments:
 `pkgs`, `src`, `fetchers`, `lockFile`, `composerLock`, `php`, `dev`,
 `noScripts`, `composerFlags`, `pathRepositories` and `srcFilter`.
+`lib.composer-purifier.readLock { src; }` gives the lock in memory of the
+contract: the download entries, the outputs, and the problems of the
+lockfiles, each naming the command that fixes it.
 
 A packaging flake can build a project whose source holds neither lockfile.
 It writes the lockfile with `composer-purifier lock --lockfile <path>`, and
 passes it as `lockFile`, with `composer.lock` as `composerLock` when the
-source has none. A file given this way replaces the copy in `src`.
+source has none. A file given this way replaces the copy in `src`. Every
+command takes `--lockfile <path>`, or reads the path from the environment
+variable `COMPOSER_PURIFIER_LOCKFILE`, so a dev shell that sets the
+variable to the `lockFile` it passes needs no flag.
 
 ## Everyday loop
 
@@ -83,10 +89,14 @@ Composer's own:
    with a PHP that has the extensions the project requires.
 3. The project runs as usual: its `bin` scripts with `php`, its tests with
    `composer test`.
-4. `composer require` or `composer update` changes a dependency online, as
-   always. `composer-purifier lock` then records the new downloads,
-   reusing the hashes it already has, and `composer-purifier prefetch`
-   fetches them.
+4. `composer-purifier update [<package>...]` updates both lockfiles in one
+   run: it runs `composer update --no-install` on the PHP that the project
+   requires, for every package or only the named ones, and then
+   `composer-purifier lock`. After a `composer require` or a plain
+   `composer update`, `composer-purifier lock` alone records the new
+   downloads and keeps the resolution of `composer.lock` as it is. Either
+   way, the hashes it already has are reused, and `composer-purifier
+   prefetch` then fetches the new downloads.
 
 The next `composer install` after a change to `composer.lock` stops until
 the lockfile and the prefetch catch up, and says which command to run.
@@ -96,8 +106,8 @@ the lockfile and the prefetch catch up, and says which command to run.
 `composer-purifier prefetch` builds three things with `nix-build`: the
 Composer cache of the lockfile, Composer on the PHP that the project
 requires with its `require-dev` packages, and the `composer.lock` of an
-offline install. It keeps them alive with GC roots in `.composer-purifier/`,
-which belongs in `.gitignore`. The `require-dev` packages are part of the
+offline install. It keeps them alive with garbage-collector roots in
+`.composer-purifier/`, beside the lockfile, which belongs in `.gitignore`. The `require-dev` packages are part of the
 prefetch, so the tests run offline too.
 
 After a prefetch, the `composer` of this flake reads `.composer-purifier/`
@@ -121,17 +131,21 @@ what is wrong and which command fixes it:
 
 | Mistake | Message |
 | --- | --- |
-| `composer.lock` changed, for example by `composer require`, and `lock` has not run since | `composer.lock changed after composer-purifier.lock.json was written. Run composer-purifier lock.` |
-| The lockfile changed after the last prefetch | `composer-purifier.lock.json changed after the last prefetch. Run composer-purifier prefetch.` |
-| The lockfile was edited by hand, a hash included | `… was edited after composer-purifier lock wrote it: its content does not match its contentHash. Run composer-purifier lock --force to write it again.` |
-| The lockfile lost or gained a package | `… names no download for <package>, which composer.lock has.` or `… names <package>, which composer.lock does not have.`, followed by `Run composer-purifier lock --force …` |
-| A package points at a missing entry | `… names <path> for <package>, but has no entry at that path. Run composer-purifier lock --force …` |
-| The lockfile is not valid JSON, has no `packages`, or has an entry without a hash | the problem, followed by `Run composer-purifier lock --force …` |
-| The lockfile is from another version of composer-purifier | `… has lock format version <n>; this composer-purifier reads version 3. Run composer-purifier lock --force …` |
+| A command such as `composer require` added a download to `composer.lock`, and `lock` has not run since. | `composer-purifier.lock.json has no hash for the dist of <package> at <URL>, which composer.lock has. Run composer-purifier lock.` A checkout reads `the git checkout of <package> at <URL>#<reference>` in place of the dist. |
+| The lockfile changed after the last prefetch. | `<lockfile> changed after the last prefetch. Run composer-purifier prefetch.` |
+| Someone edited the lockfile by hand, a hash included. | `… was edited after composer-purifier lock wrote it: its content does not match its contentHash. Run composer-purifier lock --force to write it again.` |
+| The lockfile is not valid JSON, or its `dists` or `sources` field is not a map of hashes. | The message names the problem and ends with `Run composer-purifier lock --force …` |
+| Another version of composer-purifier wrote the lockfile. | `… has lock format version <n>; this composer-purifier reads version 4. Run composer-purifier lock --force …` |
 | A download no longer matches its locked hash | Nix rejects it with `hash mismatch in fixed-output derivation`, naming both hashes |
 | `composer.json` changed and `composer update` has not run | `lock` stops with `composer.lock is out of date with composer.json. Run composer update --lock first.` |
 
-The lockfile holds `contentHash`, the SHA-256 of its other fields, so an
+The lockfile, format 4, holds only what `composer.lock` lacks. `dists`
+maps the dist URL of each package whose `shasum` is empty to the SHA-256
+of the file. `sources` maps `<URL>#<reference>` of each package that has
+only a version-control source to the hash of its checkout. A dist with a
+`shasum` needs no entry, since Nix checks the SHA-1 of `composer.lock`.
+Nix derives every URL, mirror and cache path from `composer.lock`. The
+lockfile also holds `contentHash`, the SHA-256 of its other fields, so an
 edit by hand fails before any download.
 
 ## Sources supported and refused
@@ -140,7 +154,8 @@ Every kind of package source that `composer.lock` can hold builds, except
 Perforce.
 
 - A dist, the archive that Packagist and most repositories serve, is
-  recorded by its URL and the mirrors of its repository. This covers `zip`,
+  fetched from its URL and the mirrors of its repository, as
+  `composer.lock` gives them. This covers `zip`,
   `tar`, `gzip`, `xz`, `rar`, `phar` and `file` dists, from any repository,
   including `package` repositories that name an archive URL. Nix puts the
   file at its path in Composer's cache, where `composer install` looks for

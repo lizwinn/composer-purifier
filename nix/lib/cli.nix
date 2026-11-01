@@ -36,9 +36,17 @@ let
       lockFile = lockPath;
     }
   );
+  # The PHP reads composer.json and composer.lock alone, so that
+  # `composer-purifier update` gets it while the purifier lockfile is stale
+  # or composer.lock does not exist yet.
+  composerLockPath = dir + "/composer.lock";
   php = pkgs.callPackage ./php.nix {
-    inherit (locked) composerJson;
-    composerLock = locked.lockedPackages;
+    composerJson = builtins.fromJSON (builtins.readFile (dir + "/composer.json"));
+    composerLock =
+      if builtins.pathExists composerLockPath then
+        builtins.fromJSON (builtins.readFile composerLockPath)
+      else
+        { };
     dev = true;
   };
   cache = pkgs.callPackage ./cache.nix {
