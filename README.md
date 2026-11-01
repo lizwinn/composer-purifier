@@ -1,56 +1,85 @@
 # composer-purifier
 
-composer-purifier builds Composer projects with Nix. Nix reads the
-downloads that `composer install` needs from `composer.lock`, and a second
-lockfile, `composer-purifier.lock.json`, holds the hashes that
-`composer.lock` lacks. Nix fetches those downloads, and `composer install`
-runs in the Nix sandbox with the network disabled. composer-purifier meets the
-[purifier contract](https://github.com/nix-purifiers/purifier/blob/main/CONTRACT.md),
-so its builder, commands and checks have the same shape as those of the
-other nix-purifiers.
+composer-purifier keeps Composer's development workflow on locked,
+Nix-resolved dependencies. Use the normal build and test commands in your
+working tree; building the project itself in the Nix sandbox is an
+optional next step.
+
+It follows the [purifier contract](https://github.com/nix-purifiers/purifier/blob/main/CONTRACT.md).
+
+## Installation
+
+Install the integration into your Nix profile once:
+
+```sh
+nix profile install 'github:nix-purifiers/composer-purifier'
+```
+
+This installs the purifier CLI. The workflow below prepares the native
+tool's cache, hook or environment; follow that activation step before using
+your usual commands. The ordinary tool itself remains your normal
+installation unless the setup explicitly supplies a toolchain.
+
+`nix shell` makes an integration available temporarily instead of installing
+it. Keep using the activation steps below where a project environment or
+prefetched cache is required.
 
 ## Quickstart
 
-Write the lockfile from the directory of `composer.json`, after
-`composer update` has written `composer.lock`:
+Install Nix, then run the following from your existing project's root.
+The setup prepares the locked dependencies and the integration that
+Composer's normal commands use:
 
 ```zsh
-nix run github:nix-purifiers/composer-purifier -- lock
+nix develop github:nix-purifiers/composer-purifier
+composer-purifier lock
+composer-purifier prefetch
+composer install
+composer test
 ```
 
-`lock` first runs `composer audit --locked`, online, and stops if Composer
-reports a problem with a locked package. The audit follows the `audit` and
-`policy` settings of `composer.json`. `lock --no-audit` skips it. Commit
-`composer-purifier.lock.json` next to `composer.lock`.
+Commit the lockfiles that the lock command writes, including the build
+tool's own lockfile when it has one. Keep using the project's usual build,
+test and editor commands with this setup. Nix provides the locked
+dependencies; the development commands above run outside the Nix sandbox.
+No project Nix files are needed for this workflow.
 
-`lock` keeps the resolution that `composer.lock` records. When
-`composer.lock` is missing, `lock` stops and names `composer update`. When
-`composer.json` has changed since `composer.lock` was written, `lock` stops
-and names `composer update --lock`. `composer.lock` is written by
-Composer, or by `composer-purifier update`.
+Sandboxed builds of the whole project are an optional
+[next step](#building-the-project-with-nix).
 
-Then build the project from the same directory, with no Nix file added to
-it. `<name>` is the `name` of `composer.json` with `/` replaced by `-`, such
-as `my-vendor-my-app`:
+## Development loop
 
-```zsh
-nix build --impure --expr '
-  let
-    purifier = builtins.getFlake "github:nix-purifiers/composer-purifier";
-    pkgs = import purifier.inputs.nixpkgs {
-      system = builtins.currentSystem;
-      overlays = [ purifier.overlays.default ];
-    };
-  in
-  (pkgs.composer-purifier.buildComposerProject { src = ./.; }).packages.my-app'
-```
+`nix develop github:nix-purifiers/composer-purifier` gives PHP, the
+`composer-purifier` command, its `composer`, and phpactor. The
+`composer-purifier` command runs Composer as a PHP library and is not a
+Composer plugin, because `lock` runs before the `vendor` directory exists.
+The loop is Composer's own:
 
-This uses the purifier's pinned nixpkgs, matching the lock command above.
-To build with ambient `<nixpkgs>` from your Nix search path instead,
-replace `import purifier.inputs.nixpkgs` with `import <nixpkgs>`.
-Both forms need no Nix files in your project. The build tool and language
-versions must match the lockfile; with ambient nixpkgs, lock with the
-purifier from that package set or pass a compatible toolchain to the builder.
+1. `composer-purifier prefetch` fetches what the lockfile names into the
+   Nix store (see [Working offline](#working-offline)).
+2. `composer install` installs the project from those downloads, offline,
+   with a PHP that has the extensions the project requires.
+3. The project runs as usual: its `bin` scripts with `php`, its tests with
+   `composer test`.
+4. `composer-purifier update [<package>...]` updates both lockfiles in one
+   run: it runs `composer update --no-install` on the PHP that the project
+   requires, for every package or only the named ones, and then
+   `composer-purifier lock`. After a `composer require` or a plain
+   `composer update`, `composer-purifier lock` alone records the new
+   downloads and keeps the resolution of `composer.lock` as it is. Either
+   way, the hashes it already has are reused, and `composer-purifier
+   prefetch` then fetches the new downloads.
+
+The next `composer install` after a change to `composer.lock` stops until
+the lockfile and the prefetch catch up, and says which command to run.
+
+## Building the project with Nix
+
+Once the native development workflow is working, you can also build and
+test the whole project in the Nix sandbox. For this step, keep a flake or
+another Nix build definition in the project's repository, or maintain an
+external packaging repository that points at its sources and lockfiles.
+The builder consumes the same lockfiles as the development workflow.
 
 The flake's overlay adds one attribute to the package set, the scope
 `composer-purifier`. The scope holds the builder `buildComposerProject`
@@ -120,31 +149,29 @@ the environment variables `COMPOSER_PURIFIER_LOCKFILE` and
 not exist yet. A dev shell that sets both variables to the paths it passes
 to the builder needs no flags.
 
-## Development loop
+### One-off builds without a project Nix file
 
-`nix develop github:nix-purifiers/composer-purifier` gives PHP, the
-`composer-purifier` command, its `composer`, and phpactor. The
-`composer-purifier` command runs Composer as a PHP library and is not a
-Composer plugin, because `lock` runs before the `vendor` directory exists.
-The loop is Composer's own:
+For an ad hoc build, the builder can also be evaluated directly from the
+project root. Replace the example package name with one from your project:
 
-1. `composer-purifier prefetch` fetches what the lockfile names into the
-   Nix store (see [Working offline](#working-offline)).
-2. `composer install` installs the project from those downloads, offline,
-   with a PHP that has the extensions the project requires.
-3. The project runs as usual: its `bin` scripts with `php`, its tests with
-   `composer test`.
-4. `composer-purifier update [<package>...]` updates both lockfiles in one
-   run: it runs `composer update --no-install` on the PHP that the project
-   requires, for every package or only the named ones, and then
-   `composer-purifier lock`. After a `composer require` or a plain
-   `composer update`, `composer-purifier lock` alone records the new
-   downloads and keeps the resolution of `composer.lock` as it is. Either
-   way, the hashes it already has are reused, and `composer-purifier
-   prefetch` then fetches the new downloads.
+```zsh
+nix build --impure --expr '
+  let
+    purifier = builtins.getFlake "github:nix-purifiers/composer-purifier";
+    pkgs = import purifier.inputs.nixpkgs {
+      system = builtins.currentSystem;
+      overlays = [ purifier.overlays.default ];
+    };
+  in
+  (pkgs.composer-purifier.buildComposerProject { src = ./.; }).packages.my-app'
+```
 
-The next `composer install` after a change to `composer.lock` stops until
-the lockfile and the prefetch catch up, and says which command to run.
+This uses the purifier's pinned nixpkgs, matching the lock command above.
+To build with ambient `<nixpkgs>` from your Nix search path instead,
+replace `import purifier.inputs.nixpkgs` with `import <nixpkgs>`.
+Both forms need no Nix files in your project. The build tool and language
+versions must match the lockfile; with ambient nixpkgs, lock with the
+purifier from that package set or pass a compatible toolchain to the builder.
 
 ## Working offline
 
@@ -263,6 +290,11 @@ Other limits:
   cannot reach. `lock` runs the same check online, with `composer audit`.
 
 ## Examples
+
+For day-to-day work on these projects, use the native-tool setup and
+commands in [Quickstart](#quickstart) and [Development loop](#development-loop).
+The Nix expressions below show optional sandboxed packaging of those
+projects.
 
 ### Composer itself
 
