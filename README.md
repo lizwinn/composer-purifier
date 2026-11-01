@@ -107,8 +107,9 @@ the lockfile and the prefetch catch up, and says which command to run.
 Composer cache of the lockfile, Composer on the PHP that the project
 requires with its `require-dev` packages, and the `composer.lock` of an
 offline install. It keeps them alive with garbage-collector roots in
-`.composer-purifier/`, beside the lockfile, which belongs in `.gitignore`. The `require-dev` packages are part of the
-prefetch, so the tests run offline too.
+`.composer-purifier/`, beside the lockfile, which belongs in `.gitignore`.
+The `require-dev` packages are part of the prefetch, so the tests run
+offline too.
 
 After a prefetch, the `composer` of this flake reads `.composer-purifier/`
 for `composer install`, and runs it with the network disabled. Every other
@@ -203,10 +204,10 @@ Other limits:
   `composer install` look for a different cache path, and the offline
   install then fails.
 - A test runner that downloads its own tools when it first runs works only
-  with the network. The `simple-phpunit` of symfony/phpunit-bridge, which
-  composer/composer uses, installs PHPUnit with Composer the first time it
-  runs, and that download is not part of `composer.lock`. A project whose
-  tests run offline requires `phpunit/phpunit` in `require-dev` instead.
+  with the network. The `simple-phpunit` of symfony/phpunit-bridge installs
+  PHPUnit with Composer the first time it runs, and that download is not
+  part of `composer.lock`. A project whose tests run offline requires
+  `phpunit/phpunit` in `require-dev` instead.
 - The hash of a GitHub dist is the hash of the zip archive that GitHub
   generates. If GitHub changes how it generates archives, the fetch fails
   with a hash mismatch, and `lock --force` records the new hashes.
@@ -217,24 +218,52 @@ Other limits:
 
 ## Examples
 
-CI locks and builds [composer/composer](https://github.com/composer/composer)
-at its 2.10.3 release (commit `f0de0bf`) as an example of a large PHP
-project. It has 36 downloads with its `require-dev` packages, and `lock`
-took about two seconds, the audit included, since Composer downloads in
-parallel. The `real-world-composer` check builds it from
-`tests/projects/composer/composer-purifier.lock.json` and runs its
-`composer` executable.
+### Composer itself
 
-The fixtures under `tests/fixtures` are small examples of a project with
-dists, a project with git, tar and path sources, and a project with git, hg,
-svn and fossil sources.
+[composer/composer](https://github.com/composer/composer) belongs to
+someone else, so its build stays external: its own `composer.lock` stays
+in its tree, and a packaging flake keeps the purifier lockfile. Check out
+the release you want to build, and write the lockfile into the directory
+of the flake:
 
-`nix flake check` runs the checks of `tests/default.nix`, and the CI
-workflow runs them on each push to `main`, on an x86_64-linux and an
-aarch64-linux runner. They include the `conformance-*` checks of the
-contract, unit tests of the lock run's URL-to-path rule, source parsing and
-lockfile checks (`tests/unit/functions.php`), and a fixture for each kind
-of source.
+```zsh
+git clone --branch 2.10.3 https://github.com/composer/composer
+cd composer
+nix run github:nix-purifiers/composer-purifier -- lock --lockfile ../composer-purifier.lock.json
+cd ..
+```
+
+The flake in that directory builds the release from the same tag. Add
+`flake.nix` and `composer-purifier.lock.json` to the git repository of the
+directory, since flakes read only tracked files:
+
+```nix
+{
+  inputs.composer-purifier.url = "github:nix-purifiers/composer-purifier";
+  inputs.nixpkgs.follows = "composer-purifier/nixpkgs";
+  inputs.composer-src = {
+    url = "github:composer/composer/2.10.3";
+    flake = false;
+  };
+
+  outputs = { nixpkgs, composer-purifier, composer-src, ... }:
+    let
+      system = "x86_64-linux";
+      composer = composer-purifier.lib.composer-purifier.buildComposerProject {
+        pkgs = nixpkgs.legacyPackages.${system};
+        src = composer-src;
+        lockFile = ./composer-purifier.lock.json;
+      };
+    in
+    {
+      packages.${system} = composer.packages;
+    };
+}
+```
+
+`nix run .#composer -- --version` then runs the Composer that Nix built.
+To move to a newer release, change the tag in `flake.nix`, check out the
+same tag, and run the `lock` command again.
 
 ## Credits
 
