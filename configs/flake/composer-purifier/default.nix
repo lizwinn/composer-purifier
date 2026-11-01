@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-{ ... }:
+{ closure-lib, ... }:
 {
   config,
   inputs,
@@ -8,23 +8,25 @@
 }:
 {
 
-  imports = [ inputs.flake-parts.flakeModules.partitions ];
+  imports = [
+    inputs.flake-parts.flakeModules.partitions
+    closure-lib.caisson.modules.flake."purifier/purifier-packages"
+  ];
 
   debug = false;
   caisson = {
     libOverlays.exported = libOverlays: {
       inherit (libOverlays) default;
     };
-
-    # The packages output is set below, from the derivations of the scope.
-    nixpkgs.packages.export.enabled = false;
   };
 
   # The scope `composer-purifier` is the `default` entry of the package
   # overlay registry of this flake (pkg-overlays/): the package set applies
   # it by default, and the flake exports it as `pkgOverlays` and as the
-  # plain `overlays.default`. The packages output holds the derivations of
-  # the scope, and `default`.
+  # plain `overlays.default`. The module purifier-packages of the purifier
+  # library publishes the derivations of the scope as the packages output.
+  purifier.scope = "composer-purifier";
+
   #
   # `nix run github:nix-purifiers/composer-purifier -- lock` writes
   # composer-purifier.lock.json for the Composer project in the current
@@ -34,9 +36,7 @@
   perSystem =
     { config, pkgs, ... }:
     {
-      packages = lib.filterAttrs (_: lib.isDerivation) pkgs.composer-purifier // {
-        default = config.packages.composer-purifier;
-      };
+      packages.default = config.packages.composer-purifier;
       devShells.default = pkgs.mkShell {
         packages = [
           config.packages.composer-purifier
