@@ -38,8 +38,12 @@
 #                          package, and both lockfiles pass the stale check
 #                          after each run
 #   conformance-external   tests/fixtures/app builds from a source that
-#                          holds neither lockfile, with both given from
-#                          tests/external/app
+#                          holds only its composer.lock, with the
+#                          purifier lockfile given from tests/external/app,
+#                          and from a source that holds neither lockfile,
+#                          with both given from there; a composer.lock
+#                          given from outside replaces the one in the
+#                          source
 #
 # The checks of composer-purifier itself:
 #
@@ -190,6 +194,17 @@ let
     };
     lockFile = ./external/app/composer-purifier.lock.json;
     composerLock = ./external/app/composer.lock;
+  };
+
+  # The app fixture from a source that holds its composer.lock and not the
+  # purifier lockfile, which a flake keeps outside it.
+  externalLockfile = build {
+    src = builtins.path {
+      path = ./fixtures/app;
+      name = "fixture-app-without-purifier-lockfile";
+      filter = path: type: baseNameOf path != "composer-purifier.lock.json";
+    };
+    lockFile = ./external/app/composer-purifier.lock.json;
   };
 
   # Whether the app fixture evaluates with a lockfile, and with a
@@ -549,6 +564,18 @@ in
         test "$(version greeting)" = 1.0.0
         test "$(version farewell)" = 1.0.0
 
+        # With a tool lockfile outside the tree, `update` writes the moved
+        # composer.lock there, starting from the tree's copy, and leaves
+        # the tree's copy as it is. `prefetch` accepts the pair, and a
+        # relock of the tree restores the lockfile for the next steps.
+        cp composer.lock tree-composer.lock
+        composer-purifier update --no-audit --tool-lockfile "$PWD/outside/composer.lock" fixture/greeting
+        cmp composer.lock tree-composer.lock
+        test "$(jq -r '.packages[] | select(.name == "fixture/greeting") | .version' outside/composer.lock)" = 1.1.0
+        test "$(jq -r '.packages[] | select(.name == "fixture/farewell") | .version' outside/composer.lock)" = 1.0.0
+        composer-purifier prefetch --tool-lockfile "$PWD/outside/composer.lock"
+        composer-purifier lock --force --no-audit
+
         composer-purifier update --no-audit fixture/greeting
         stale
         test "$(version greeting)" = 1.1.0
@@ -562,10 +589,17 @@ in
         touch $out
       '';
 
-  conformance-external = runCommand "conformance-external-check" { } ''
-    test "$(${lib.getExe external.packages.composer-purifier-fixture-app})" = "hello from composer-purifier"
-    touch $out
-  '';
+  # The tool lockfile replaces the one in `src`: the stale composer.lock
+  # that the source's own copy would pass is rejected when given from
+  # outside, and the matching copy from outside builds.
+  conformance-external =
+    assert !(acceptedWith { composerLock = ./fixtures/stale/composer.lock; });
+    assert acceptedWith { composerLock = ./external/app/composer.lock; };
+    runCommand "conformance-external-check" { } ''
+      test "$(${lib.getExe external.packages.composer-purifier-fixture-app})" = "hello from composer-purifier"
+      test "$(${lib.getExe externalLockfile.packages.composer-purifier-fixture-app})" = "hello from composer-purifier"
+      touch $out
+    '';
 
   fixture-app = runCommand "fixture-app-check" { } ''
     output="$(${lib.getExe appPackage})"

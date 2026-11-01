@@ -82,13 +82,23 @@ The result of `buildComposerProject` names every output from
 contract: the download entries, the outputs, and the problems of the
 lockfiles, each naming the command that fixes it.
 
-A packaging flake can build a project whose source holds neither lockfile.
-It writes the lockfile with `composer-purifier lock --lockfile <path>`, and
-passes it as `lockFile`, with `composer.lock` as `composerLock` when the
-source has none. A file given this way replaces the copy in `src`. Every
-command takes `--lockfile <path>`, or reads the path from the environment
-variable `COMPOSER_PURIFIER_LOCKFILE`, so a dev shell that sets the
-variable to the `lockFile` it passes needs no flag.
+We recommend committing both lockfiles, `composer.lock` and
+`composer-purifier.lock.json`, to the repository of the project. The
+builder and the commands look for them there by default.
+
+A project can instead keep its build external. The flake that calls the
+builder keeps the purifier lockfile outside the repository and passes it
+as `lockFile`. It can also keep its own copy of `composer.lock` and pass it
+as `composerLock`, which the build uses in place of the copy in `src`. An
+external build suits a project whose committed `composer.lock` is missing,
+out of date or written by another version of Composer. Every command takes
+`--lockfile <path>` and `--tool-lockfile <path>`, or reads the paths from
+the environment variables `COMPOSER_PURIFIER_LOCKFILE` and
+`COMPOSER_PURIFIER_TOOL_LOCKFILE`. With a tool lockfile, `update` writes
+`composer.lock` there and leaves the copy in the repository as it is, and
+`lock` starts from the copy in the repository when the outside file does
+not exist yet. A dev shell that sets both variables to the paths it passes
+to the builder needs no flags.
 
 ## Development loop
 

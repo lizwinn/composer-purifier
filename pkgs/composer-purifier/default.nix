@@ -85,10 +85,10 @@ let
     ];
     text = ''
       usage() {
-        echo "usage: composer-purifier lock [--lockfile <path>] [--force] [--no-audit]" >&2
-        echo "       composer-purifier update [--lockfile <path>] [--no-audit] [<package>...]" >&2
-        echo "       composer-purifier prefetch [--lockfile <path>]" >&2
-        echo "       composer-purifier publish [--lockfile <path>] <directory>" >&2
+        echo "usage: composer-purifier lock [--lockfile <path>] [--tool-lockfile <path>] [--force] [--no-audit]" >&2
+        echo "       composer-purifier update [--lockfile <path>] [--tool-lockfile <path>] [--no-audit] [<package>...]" >&2
+        echo "       composer-purifier prefetch [--lockfile <path>] [--tool-lockfile <path>]" >&2
+        echo "       composer-purifier publish [--lockfile <path>] [--tool-lockfile <path>] <directory>" >&2
         exit 2
       }
 
@@ -100,6 +100,9 @@ let
       # composer-purifier.lock.json outside the project, for a project whose
       # source does not hold it.
       lockFile="''${COMPOSER_PURIFIER_LOCKFILE:-composer-purifier.lock.json}"
+      # --tool-lockfile, or COMPOSER_PURIFIER_TOOL_LOCKFILE, names the
+      # composer.lock to use in place of the one in the project.
+      toolLockFile="''${COMPOSER_PURIFIER_TOOL_LOCKFILE:-}"
       audit=1
       force=0
       operands=()
@@ -110,14 +113,39 @@ let
             lockFile="$2"
             shift 2
             ;;
+          --tool-lockfile)
+            [ $# -ge 2 ] || usage
+            toolLockFile="$2"
+            shift 2
+            ;;
           --no-audit) audit=0; shift ;;
           --force) force=1; shift ;;
           *) operands+=("$1"); shift ;;
         esac
       done
       lockFile="$(realpath -m "$lockFile")"
+      toolArguments=()
+      if [ -n "$toolLockFile" ]; then
+        toolLockFile="$(realpath -m "$toolLockFile")"
+        toolArguments=(--argstr toolLockFile "$toolLockFile")
+      fi
       # The GC roots of `prefetch` lie beside the lockfile.
       roots="$(dirname "$lockFile")/.composer-purifier"
+
+      # With a tool lockfile, Composer runs on copies of composer.json and
+      # composer.lock in a temporary directory, so that the composer.lock
+      # of the project stays as it is. The copy of composer.lock starts from
+      # the tool lockfile, or from the one in the project when the tool
+      # lockfile does not exist yet.
+      toolWorkdir() {
+        workdir="$(mktemp -d)"
+        cp composer.json "$workdir/composer.json"
+        if [ -e "$toolLockFile" ]; then
+          cp "$toolLockFile" "$workdir/composer.lock"
+        elif [ -e composer.lock ]; then
+          cp composer.lock "$workdir/composer.lock"
+        fi
+      }
 
       # Writes the lockfile from composer.lock as it is (src/lock.php).
       lock() {
@@ -125,13 +153,19 @@ let
         if [ "$force" = 1 ]; then
           lockArguments+=(--force)
         fi
-        # The install-time policy of Composer is off in the offline
-        # installs, so the advisory and malware check runs here, online.
-        if [ "$audit" = 1 ]; then
-          composer audit --locked
-        fi
-        COMPOSER_PURIFIER_HASH_CHECKOUT="''${COMPOSER_PURIFIER_HASH_CHECKOUT:-${lib.getExe hashCheckout}}" \
-          php ${scripts}/lock.php ${defaultComposer}/share/php/composer/vendor/autoload.php "''${lockArguments[@]}"
+        (
+          if [ -n "$toolLockFile" ]; then
+            toolWorkdir
+            export COMPOSER="$workdir/composer.json"
+          fi
+          # The install-time policy of Composer is off in the offline
+          # installs, so the advisory and malware check runs here, online.
+          if [ "$audit" = 1 ]; then
+            composer audit --locked
+          fi
+          COMPOSER_PURIFIER_HASH_CHECKOUT="''${COMPOSER_PURIFIER_HASH_CHECKOUT:-${lib.getExe hashCheckout}}" \
+            php ${scripts}/lock.php ${defaultComposer}/share/php/composer/vendor/autoload.php "''${lockArguments[@]}"
+        )
       }
 
       case "$command" in
@@ -150,16 +184,24 @@ let
               --attr composer \
               --argstr projectDir "$PWD" \
               --argstr lockFile "$lockFile" \
+              "''${toolArguments[@]}" \
               --no-out-link)"
           fi
-          "$projectComposer/bin/composer" update --no-install --no-interaction --no-audit "''${operands[@]}"
+          if [ -n "$toolLockFile" ]; then
+            toolWorkdir
+            COMPOSER="$workdir/composer.json" "$projectComposer/bin/composer" update --no-install --no-interaction --no-audit "''${operands[@]}"
+            mkdir -p "$(dirname "$toolLockFile")"
+            cp --no-preserve=mode "$workdir/composer.lock" "$toolLockFile"
+          else
+            "$projectComposer/bin/composer" update --no-install --no-interaction --no-audit "''${operands[@]}"
+          fi
           lock
           ;;
         prefetch)
           [ ''${#operands[@]} -eq 0 ] || usage
           # Stops with the command to run when the lockfile is missing,
           # malformed, stale or edited (src/check.php).
-          php ${scripts}/check.php "$lockFile"
+          php ${scripts}/check.php "$lockFile" "$toolLockFile"
           mkdir -p "$roots"
           if [ -n "''${COMPOSER_PURIFIER_CACHE:-}" ] && [ -n "''${COMPOSER_PURIFIER_COMPOSER:-}" ] && [ -n "''${COMPOSER_PURIFIER_OFFLINE_LOCK:-}" ]; then
             ln -sfn "$COMPOSER_PURIFIER_CACHE" "$roots/cache"
@@ -171,6 +213,7 @@ let
                 --attr "$attribute" \
                 --argstr projectDir "$PWD" \
                 --argstr lockFile "$lockFile" \
+                "''${toolArguments[@]}" \
                 --out-link "$roots/$attribute" >/dev/null
             done
           fi
@@ -185,6 +228,7 @@ let
             --attr release \
             --argstr projectDir "$PWD" \
             --argstr lockFile "$lockFile" \
+            "''${toolArguments[@]}" \
             --no-out-link)"
           target="''${operands[0]}/$(basename "$release" | cut -d- -f2-)"
           cp --no-preserve=mode "$release" "$target"
@@ -220,7 +264,7 @@ let
         exec "$projectComposer/bin/composer" "$@"
       fi
 
-      if ! php ${scripts}/check.php "$lockFile"; then
+      if ! php ${scripts}/check.php "$lockFile" "''${COMPOSER_PURIFIER_TOOL_LOCKFILE:-}"; then
         echo "composer-purifier: then run \`composer-purifier prefetch\`, and \`composer install\` again." >&2
         exit 1
       fi

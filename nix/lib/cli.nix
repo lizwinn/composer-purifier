@@ -18,28 +18,32 @@
 #   projectDir  the absolute path of the directory of composer.json
 #   lockFile    the absolute path of the lockfile; "" for the
 #               composer-purifier.lock.json of the project directory
+#   toolLockFile  the absolute path of the composer.lock to use in place of
+#               the one in the project directory; "" for that one
 {
   nixpkgs,
   purifier,
   system,
   projectDir,
   lockFile ? "",
+  toolLockFile ? "",
 }:
 let
   pkgs = import nixpkgs { inherit system; };
   library = import (/. + purifier) { inherit (pkgs) lib; };
   dir = /. + projectDir;
   lockPath = if lockFile == "" then dir + "/composer-purifier.lock.json" else /. + lockFile;
+  composerLockPath = if toolLockFile == "" then dir + "/composer.lock" else /. + toolLockFile;
   locked = library.checkLock (
     import ./read-lock.nix { inherit (pkgs) lib; } {
       src = dir;
       lockFile = lockPath;
+      composerLock = composerLockPath;
     }
   );
   # The PHP reads composer.json and composer.lock alone, so that
   # `composer-purifier update` gets it while the purifier lockfile is stale
   # or composer.lock does not exist yet.
-  composerLockPath = dir + "/composer.lock";
   php = pkgs.callPackage ./php.nix {
     composerJson = builtins.fromJSON (builtins.readFile (dir + "/composer.json"));
     composerLock =
@@ -70,5 +74,6 @@ in
     (build {
       src = dir;
       lockFile = lockPath;
+      composerLock = composerLockPath;
     }).release;
 }

@@ -13,7 +13,18 @@
 # `cache` is this, and `composer-purifier prefetch` builds it on its own
 # for an install outside Nix.
 {
-  pkgs,
+  # The packages that fetchEntry and tree of the purifier library fetch,
+  # unpack and build with, by name.
+  fetchurl,
+  fetchgit,
+  fetchhg,
+  fetchsvn,
+  fetchfossil,
+  runCommand,
+  unzip,
+  zstd,
+  python3,
+  writeText,
   # The entries of entries.nix.
   entries,
   # The `purifier` library namespace (lib.purifier of
@@ -25,10 +36,21 @@
   fetchers ? { },
 }:
 let
-  # `pkgs` goes with the fetchers, so that a file entry is fetched with
-  # nixpkgs' fetchurl, which tries its mirrors too.
+  # A file entry is fetched with nixpkgs' fetchurl, which tries its mirrors
+  # too.
   libraryArguments = {
-    inherit pkgs;
+    inherit
+      fetchurl
+      fetchgit
+      fetchhg
+      fetchsvn
+      fetchfossil
+      runCommand
+      unzip
+      zstd
+      python3
+      writeText
+      ;
   }
   // fetchers;
 in
