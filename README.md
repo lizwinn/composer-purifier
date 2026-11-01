@@ -215,14 +215,19 @@ Other limits:
   advisory lists from the package repositories, which an offline install
   cannot reach. `lock` runs the same check online, with `composer audit`.
 
-## Real-world projects
+## Examples
 
-- [composer/composer](https://github.com/composer/composer) at its 2.10.3
-  release (commit `f0de0bf`), 36 downloads with its `require-dev`
-  packages. `lock` took about two seconds, the audit included, since
-  Composer downloads in parallel. The `real-world-composer` check builds it
-  from `tests/projects/composer/composer-purifier.lock.json` and runs its
-  `composer` executable.
+CI locks and builds [composer/composer](https://github.com/composer/composer)
+at its 2.10.3 release (commit `f0de0bf`) as an example of a large PHP
+project. It has 36 downloads with its `require-dev` packages, and `lock`
+took about two seconds, the audit included, since Composer downloads in
+parallel. The `real-world-composer` check builds it from
+`tests/projects/composer/composer-purifier.lock.json` and runs its
+`composer` executable.
+
+The fixtures under `tests/fixtures` are small examples of a project with
+dists, a project with git, tar and path sources, and a project with git, hg,
+svn and fossil sources.
 
 `nix flake check` runs the checks of `tests/default.nix`, and the CI
 workflow runs them on each push to `main`, on an x86_64-linux and an
