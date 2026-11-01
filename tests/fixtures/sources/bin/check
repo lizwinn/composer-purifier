@@ -1,0 +1,17 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+// psr/clock comes from a git source, psr/container from a tar archive.
+foreach ([Psr\Clock\ClockInterface::class, Psr\Container\ContainerInterface::class] as $interface) {
+    if (!interface_exists($interface)) {
+        fwrite(STDERR, "{$interface} is missing\n");
+        exit(1);
+    }
+}
+
+echo Fixture\Inner\Hello::text(), "\n";
+echo Fixture\Outer\Hello::text(), "\n";

@@ -1,0 +1,21 @@
+{
+    "version": 1,
+    "composerLock": "sha256-IqCAUMyRrCbspkh37aY633bh4os9v/OCWQQuHl37YZ4=",
+    "artifacts": [
+        {
+            "path": "files/fixture/psr-container/611ee7c601f6394380921265eae5da0ae1266a08.tar",
+            "url": "https://github.com/php-fig/container/archive/refs/tags/2.0.2.tar.gz",
+            "mirrors": [],
+            "hash": "sha256-gXSTNsDjZ5oyXCHTB0koNIG9cw2hbePepmkESnlbcO4="
+        },
+        {
+            "path": "git/fixture/psr-clock",
+            "git": {
+                "url": "https://github.com/php-fig/clock.git",
+                "rev": "b2eb66ddc49cb78166f16246b3c569acf82a5c16",
+                "submodules": false
+            },
+            "hash": "sha256-fRd1KrFaQj7Jc+yuwNlaEw2pXgDsJo5XlnGtDZxJPv8="
+        }
+    ]
+}

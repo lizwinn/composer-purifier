@@ -1,0 +1,11 @@
+{
+    "name": "fixture/outer",
+    "description": "A path package outside the directory of the project that requires it",
+    "version": "1.0.0",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Fixture\\Outer\\": "src/"
+        }
+    }
+}

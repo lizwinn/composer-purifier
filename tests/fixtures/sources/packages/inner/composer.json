@@ -1,0 +1,11 @@
+{
+    "name": "fixture/inner",
+    "description": "A path package inside the project directory",
+    "version": "1.0.0",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Fixture\\Inner\\": "src/"
+        }
+    }
+}

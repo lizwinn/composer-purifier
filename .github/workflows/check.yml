@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: MIT
+#
+# Runs the checks of the flake (tests/default.nix) on x86_64-linux, and
+# evaluates every output for x86_64-linux and aarch64-linux.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            sandbox = true
+            netrc-file = /etc/nix/netrc
+
+      # The fixtures download GitHub zipballs from api.github.com, which
+      # limits requests without a token by IP address, and the runners
+      # share addresses. Nix's built-in fetcher reads credentials from the
+      # netrc file, so the downloads use the token of this job.
+      - name: Give the Nix daemon the job token for api.github.com
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf 'machine api.github.com\nlogin x-access-token\npassword %s\n' "$GITHUB_TOKEN" \
+            | sudo tee /etc/nix/netrc > /dev/null
+          sudo chmod 600 /etc/nix/netrc
+
+      - name: Run the checks
+        run: nix flake check --print-build-logs
+
+      - name: Evaluate every output for both systems
+        run: nix flake check --all-systems --no-build

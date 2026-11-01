@@ -1,0 +1,88 @@
+{
+    "name": "composer-purifier/fixture-vcs",
+    "description": "A Composer project with a package of each version-control source kind, for the composer-purifier tests. The repository URLs are unreachable: the tests lock the project with a stand-in for the prefetch command, and build it with stand-ins for the nixpkgs fetchers.",
+    "type": "project",
+    "license": "MIT",
+    "repositories": [
+        {
+            "type": "package",
+            "package": {
+                "name": "fixture/via-git",
+                "version": "1.0.0",
+                "source": {
+                    "type": "git",
+                    "url": "https://example.invalid/fixture/git.git",
+                    "reference": "0123456789abcdef0123456789abcdef01234567"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Fixture\\Git\\": "src/"
+                    }
+                }
+            }
+        },
+        {
+            "type": "package",
+            "package": {
+                "name": "fixture/via-hg",
+                "version": "1.0.0",
+                "source": {
+                    "type": "hg",
+                    "url": "https://example.invalid/fixture/hg",
+                    "reference": "89abcdef0123456789abcdef0123456789abcdef"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Fixture\\Hg\\": "src/"
+                    }
+                }
+            }
+        },
+        {
+            "type": "package",
+            "package": {
+                "name": "fixture/via-svn",
+                "version": "1.0.0",
+                "source": {
+                    "type": "svn",
+                    "url": "https://example.invalid/fixture/svn",
+                    "reference": "/trunk/@7"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Fixture\\Svn\\": "src/"
+                    }
+                }
+            }
+        },
+        {
+            "type": "package",
+            "package": {
+                "name": "fixture/via-fossil",
+                "version": "1.0.0",
+                "source": {
+                    "type": "fossil",
+                    "url": "https://example.invalid/fixture/fossil",
+                    "reference": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Fixture\\Fossil\\": "src/"
+                    }
+                }
+            }
+        },
+        {
+            "packagist.org": false
+        }
+    ],
+    "require": {
+        "fixture/via-git": "1.0.0",
+        "fixture/via-hg": "1.0.0",
+        "fixture/via-svn": "1.0.0",
+        "fixture/via-fossil": "1.0.0"
+    },
+    "bin": [
+        "bin/check"
+    ]
+}

@@ -1,0 +1,61 @@
+{
+    "name": "composer-purifier/fixture-sources",
+    "description": "A Composer project with a package of each kind of source that the network serves, for the composer-purifier tests",
+    "type": "project",
+    "license": "MIT",
+    "repositories": [
+        {
+            "type": "package",
+            "package": {
+                "name": "fixture/psr-clock",
+                "version": "1.0.0",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/php-fig/clock.git",
+                    "reference": "b2eb66ddc49cb78166f16246b3c569acf82a5c16"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Psr\\Clock\\": "src/"
+                    }
+                }
+            }
+        },
+        {
+            "type": "package",
+            "package": {
+                "name": "fixture/psr-container",
+                "version": "2.0.2",
+                "dist": {
+                    "type": "tar",
+                    "url": "https://github.com/php-fig/container/archive/refs/tags/2.0.2.tar.gz"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Psr\\Container\\": "src/"
+                    }
+                }
+            }
+        },
+        {
+            "type": "path",
+            "url": "packages/inner"
+        },
+        {
+            "type": "path",
+            "url": "../outer-package"
+        },
+        {
+            "packagist.org": false
+        }
+    ],
+    "require": {
+        "fixture/psr-clock": "1.0.0",
+        "fixture/psr-container": "2.0.2",
+        "fixture/inner": "1.0.0",
+        "fixture/outer": "1.0.0"
+    },
+    "bin": [
+        "bin/check"
+    ]
+}

@@ -1,0 +1,79 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
+        "This file is @generated automatically"
+    ],
+    "content-hash": "b7924fea135bb3620762bee8352b1b1f",
+    "packages": [
+        {
+            "name": "fixture/via-fossil",
+            "version": "1.0.0",
+            "source": {
+                "type": "fossil",
+                "url": "https://example.invalid/fixture/fossil",
+                "reference": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Fixture\\Fossil\\": "src/"
+                }
+            }
+        },
+        {
+            "name": "fixture/via-git",
+            "version": "1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://example.invalid/fixture/git.git",
+                "reference": "0123456789abcdef0123456789abcdef01234567"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Fixture\\Git\\": "src/"
+                }
+            }
+        },
+        {
+            "name": "fixture/via-hg",
+            "version": "1.0.0",
+            "source": {
+                "type": "hg",
+                "url": "https://example.invalid/fixture/hg",
+                "reference": "89abcdef0123456789abcdef0123456789abcdef"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Fixture\\Hg\\": "src/"
+                }
+            }
+        },
+        {
+            "name": "fixture/via-svn",
+            "version": "1.0.0",
+            "source": {
+                "type": "svn",
+                "url": "https://example.invalid/fixture/svn",
+                "reference": "/trunk/@7"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Fixture\\Svn\\": "src/"
+                }
+            }
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": {},
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": {},
+    "platform-dev": {},
+    "plugin-api-version": "2.9.0"
+}

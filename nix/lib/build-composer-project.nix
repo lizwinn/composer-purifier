@@ -12,10 +12,12 @@
 # and `buildComposerProject.override` replaces what it takes from the set.
 #
 # The build runs `composer install` in the Nix sandbox, offline, with the
-# Composer cache of the lockfile (cache.nix). The package holds the project
-# with its `vendor` directory under share/php/<name>, and a wrapper in bin/
-# for each entry of the `bin` list of composer.json. Its passthru holds
-# `cache`, `lock` and the `php` it built with.
+# Composer cache of the lockfile (cache.nix) and the composer.lock of
+# offline-lock.nix. The package holds the project with its `vendor`
+# directory under share/php/<name>, and a wrapper in bin/ for each entry of
+# the `bin` list of composer.json. Its passthru holds `cache`, `lock`, the
+# `php` it built with, and `archive`: the dist archive of the project that
+# `composer archive` makes, as a zip file in a directory.
 {
   lib,
   stdenvNoCC,
@@ -39,15 +41,21 @@
   noScripts ? false,
   # Further arguments of `composer install`.
   composerFlags ? [ ],
-  # Replaces the built-in fetcher; see fetch.nix.
+  # The Nix path of each `path` repository outside the project directory,
+  # by the URL that composer.json gives it: { "../lib" = ../lib; }.
+  pathRepositories ? { },
+  # Replaces the built-in fetcher of dists; see fetch.nix.
   fetchurl ? null,
+  # Replaces nixpkgs' fetchers of version-control checkouts, by name; see
+  # cache.nix.
+  vcsFetchers ? { },
   # Filters the project root before it is copied into the store, as the
   # `filter` of builtins.path. The default leaves out `vendor` and `.git`.
   srcFilter ? null,
 }:
 let
   lock = import ./lock.nix { inherit lockFile; };
-  cache = callPackage ./cache.nix { inherit lockFile fetchurl; };
+  cache = callPackage ./cache.nix { inherit lockFile fetchurl vcsFetchers; };
 
   composerJson = builtins.fromJSON (builtins.readFile (src + "/composer.json"));
   composerLockFile = src + "/composer.lock";
@@ -68,6 +76,31 @@ let
         inherit composerJson composerLock dev;
       };
   composer = buildPhp.packages.composer;
+
+  offlineLock = callPackage ./offline-lock.nix {
+    inherit composerLock pathRepositories;
+    inherit (cache) lock fetch;
+    rewritePaths = true;
+  };
+
+  # The environment of every Composer run in the sandbox. Composer reads
+  # the locked dists from the read-only cache, and the disabled network
+  # makes any other download fail the build rather than reach out.
+  #
+  # COMPOSER_POLICY=0 turns off the install-time policy of Composer 2.10,
+  # which fetches malware and advisory lists from the package repositories.
+  # Those lists change over time, so an offline build cannot use them.
+  # `composer-purifier lock` runs `composer audit` online instead.
+  composerEnvironment = ''
+    export HOME="$TMPDIR/home"
+    export COMPOSER_HOME="$TMPDIR/composer-home"
+    export COMPOSER_CACHE_DIR=${cache}
+    export COMPOSER_CACHE_FILES_DIR=${cache}/files
+    export COMPOSER_CACHE_READ_ONLY=1
+    export COMPOSER_DISABLE_NETWORK=1
+    export COMPOSER_POLICY=0
+    export COMPOSER_HTACCESS_PROTECT=0
+  '';
 
   # `vendor/name` becomes the package name `vendor-name`.
   pname = lock.storeName (
@@ -115,24 +148,10 @@ stdenvNoCC.mkDerivation {
 
   dontConfigure = true;
 
-  # Composer reads the locked dists from the read-only cache, and the
-  # disabled network makes any other download fail the build rather than
-  # reach out.
-  #
-  # COMPOSER_POLICY=0 turns off the install-time policy of Composer 2.10,
-  # which fetches malware and advisory lists from the package repositories.
-  # Those lists change over time, so an offline build cannot use them. The
-  # policy still applies when `composer update` writes composer.lock.
   buildPhase = ''
     runHook preBuild
-    export HOME="$TMPDIR/home"
-    export COMPOSER_HOME="$TMPDIR/composer-home"
-    export COMPOSER_CACHE_DIR=${cache}
-    export COMPOSER_CACHE_FILES_DIR=${cache}/files
-    export COMPOSER_CACHE_READ_ONLY=1
-    export COMPOSER_DISABLE_NETWORK=1
-    export COMPOSER_POLICY=0
-    export COMPOSER_HTACCESS_PROTECT=0
+    ${composerEnvironment}
+    cp --no-preserve=mode ${offlineLock} composer.lock
     composer install ${lib.escapeShellArgs installFlags}
     runHook postBuild
   '';
@@ -152,6 +171,30 @@ stdenvNoCC.mkDerivation {
   passthru = {
     inherit cache lock;
     php = buildPhp;
+
+    # `composer archive` packs the root package from the project source,
+    # leaving out what composer.json's `archive.exclude` and the
+    # export-ignore attributes of .gitattributes name.
+    archive = stdenvNoCC.mkDerivation {
+      pname = "${pname}-archive";
+      version = composerJson.version or "0";
+      src = source;
+      strictDeps = true;
+      nativeBuildInputs = [
+        buildPhp
+        composer
+      ];
+      dontConfigure = true;
+      dontFixup = true;
+      buildPhase = ''
+        runHook preBuild
+        ${composerEnvironment}
+        mkdir -p $out
+        composer archive --no-interaction --format=zip --dir=$out --file=${pname}-${composerJson.version or "0"}
+        runHook postBuild
+      '';
+      dontInstall = true;
+    };
   };
 
   meta = lib.optionalAttrs (bins != [ ]) { mainProgram = baseNameOf (builtins.head bins); };

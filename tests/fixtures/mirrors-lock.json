@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "composerLock": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "artifacts": [
+        {
+            "path": "files/fixture/mirrored/0000000000000000000000000000000000000000.zip",
+            "url": "https://example.invalid/dists/fixture-mirrored.zip",
+            "mirrors": [
+                "https://mirror.example.invalid/dists/fixture-mirrored.zip"
+            ],
+            "hash": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        }
+    ]
+}

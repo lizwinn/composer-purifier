@@ -1,0 +1,92 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
+        "This file is @generated automatically"
+    ],
+    "content-hash": "7af8c9603d2e4e653b5b3eb746b6577a",
+    "packages": [
+        {
+            "name": "fixture/inner",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/inner",
+                "reference": "dc5c15ab3027c67c56e30dbf1acb5c139ab1e877"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Fixture\\Inner\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "A path package inside the project directory",
+            "transport-options": {
+                "relative": true
+            }
+        },
+        {
+            "name": "fixture/outer",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "../outer-package",
+                "reference": "eecfccbc824886f849f9048d4328e82e45d6224c"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Fixture\\Outer\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "A path package outside the directory of the project that requires it",
+            "transport-options": {
+                "relative": true
+            }
+        },
+        {
+            "name": "fixture/psr-clock",
+            "version": "1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/php-fig/clock.git",
+                "reference": "b2eb66ddc49cb78166f16246b3c569acf82a5c16"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Psr\\Clock\\": "src/"
+                }
+            }
+        },
+        {
+            "name": "fixture/psr-container",
+            "version": "2.0.2",
+            "dist": {
+                "type": "tar",
+                "url": "https://github.com/php-fig/container/archive/refs/tags/2.0.2.tar.gz"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Psr\\Container\\": "src/"
+                }
+            }
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": {},
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": {},
+    "platform-dev": {},
+    "plugin-api-version": "2.9.0"
+}

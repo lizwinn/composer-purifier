@@ -17,9 +17,17 @@
 // own Url::updateDistReference, and downloads through Composer's
 // HttpDownloader, so the credentials of auth.json apply.
 //
+// A package that composer.lock gives only a version-control source (git,
+// hg, svn or fossil) gets a checkout entry instead: the repository URL, the
+// locked revision, and the hash of the checkout that the nixpkgs fetcher of
+// that kind makes. The command that COMPOSER_PURIFIER_PREFETCH names
+// computes the hash; the composer-purifier package sets it to a script that
+// runs the fetcher itself. The Nix side installs such a package from its
+// checkout as a path dist (nix/lib/offline-lock.nix).
+//
 // A lockfile made from the same composer.lock is left as it is, unless
-// --force is given. Otherwise the hashes of URLs the old lockfile already
-// names are kept, and only new URLs are downloaded.
+// --force is given. Otherwise the hashes of downloads the old lockfile
+// already names are kept, and only new downloads are fetched.
 
 declare(strict_types=1);
 
@@ -59,9 +67,75 @@ function sriSha256(string $file): string
     return 'sha256-' . base64_encode(hash_file('sha256', $file, true));
 }
 
+// The version-control kinds that a checkout entry can hold, as Composer
+// names its source types.
+const VCS_KINDS = ['git', 'hg', 'svn', 'fossil'];
+
 /**
- * The hashes of an existing lockfile, by URL. An unreadable lockfile or one
- * of another format version holds none.
+ * The key of a download in readOldLock: the URL of a file, or the kind,
+ * URL and revision of a checkout.
+ */
+function checkoutKey(string $kind, string $url, string $rev): string
+{
+    return $kind . '#' . $url . '#' . $rev;
+}
+
+/**
+ * The HTTPS URL of a git repository that $url names over SSH, as
+ * git@host:owner/repo.git or ssh://git@host/owner/repo.git. Any other URL
+ * stays as it is.
+ */
+function httpsGitUrl(string $url): string
+{
+    // ssh://[user@]host[:port]/path
+    if (preg_match('{^ssh://(?:[^@/]+@)?([^:/]+)(?::\d+)?/(.+)$}', $url, $match)) {
+        return 'https://' . $match[1] . '/' . $match[2];
+    }
+    // user@host:path, the scp-like syntax of git
+    if (!str_contains($url, '://') && preg_match('{^[^@/]+@([^:/]+):(.+)$}', $url, $match)) {
+        return 'https://' . $match[1] . '/' . ltrim($match[2], '/');
+    }
+
+    return $url;
+}
+
+/**
+ * The checkout of a source as the lockfile records it, under the key of
+ * its kind. Each holds what the nixpkgs fetcher of that kind takes, with
+ * the options that match what Composer's downloader of that kind installs.
+ *
+ * @return array<string, mixed>
+ */
+function checkoutOf(string $name, string $kind, string $url, string $reference): array
+{
+    switch ($kind) {
+        case 'git':
+            // GitDownloader never runs `git submodule`. The Nix sandbox has
+            // no SSH keys, so an SSH URL is recorded as the HTTPS URL of the
+            // same repository; a private repository then needs a fetchgit
+            // with credentials (the `vcsFetchers` of buildComposerProject).
+            return ['url' => httpsGitUrl($url), 'rev' => $reference, 'submodules' => false];
+        case 'hg':
+            // HgDownloader runs `hg update`, which checks out subrepositories.
+            return ['url' => $url, 'rev' => $reference, 'subrepos' => true];
+        case 'svn':
+            // SvnDownloader checks out <url>/<reference>, and a reference is
+            // a path in the repository with a peg revision: trunk/@1234.
+            if (!preg_match('{^(.*)@(\d+)$}', $reference, $match)) {
+                fail("{$name} has the svn reference {$reference}, which names no revision number.");
+            }
+            $path = trim($match[1], '/');
+
+            return ['url' => rtrim($url, '/') . ($path === '' ? '' : '/' . $path), 'rev' => $match[2]];
+        case 'fossil':
+            return ['url' => $url, 'rev' => $reference];
+    }
+    fail("{$name} has a source of unknown kind {$kind}.");
+}
+
+/**
+ * The hashes of an existing lockfile, by download key. An unreadable
+ * lockfile or one of another format version holds none.
  *
  * @return array{composerLock: ?string, hashes: array<string, string>}
  */
@@ -77,25 +151,66 @@ function readOldLock(string $file): array
     }
     $hashes = [];
     foreach ($lock['artifacts'] ?? [] as $artifact) {
-        $hashes[$artifact['url']] = $artifact['hash'];
+        $key = $artifact['url'] ?? null;
+        foreach (VCS_KINDS as $kind) {
+            if (isset($artifact[$kind])) {
+                $key = checkoutKey($kind, $artifact[$kind]['url'], $artifact[$kind]['rev']);
+            }
+        }
+        if ($key !== null) {
+            $hashes[$key] = $artifact['hash'];
+        }
     }
 
     return ['composerLock' => $lock['composerLock'] ?? null, 'hashes' => $hashes];
 }
 
 /**
- * The URL that `composer install` downloads the dist of $package from,
- * as FileDownloader::processUrl computes it.
+ * The hash of a checkout, from the command that COMPOSER_PURIFIER_PREFETCH
+ * names. The command takes the kind and the checkout as JSON, and prints
+ * the SRI hash of the checkout.
+ *
+ * @param array<string, mixed> $checkout
  */
-function distUrl(\Composer\Config $config, PackageInterface $package): string
+function prefetch(string $kind, array $checkout): string
 {
-    $url = $package->getDistUrls()[0];
-    $reference = $package->getDistReference();
-    if ($reference !== null) {
-        $url = Url::updateDistReference($config, $url, $reference);
+    $command = getenv('COMPOSER_PURIFIER_PREFETCH');
+    if ($command === false || $command === '') {
+        fail('COMPOSER_PURIFIER_PREFETCH names no command to hash checkouts with. Run lock through the composer-purifier command.');
+    }
+    $process = proc_open(
+        [$command, $kind, json_encode($checkout, JSON_UNESCAPED_SLASHES)],
+        [1 => ['pipe', 'w']],
+        $pipes
+    );
+    if (!is_resource($process)) {
+        fail("could not run {$command}.");
+    }
+    $output = trim((string) stream_get_contents($pipes[1]));
+    fclose($pipes[1]);
+    if (proc_close($process) !== 0 || !str_starts_with($output, 'sha256-')) {
+        fail("could not hash the {$kind} checkout of {$checkout['url']} at {$checkout['rev']}.");
     }
 
-    return $url;
+    return $output;
+}
+
+/**
+ * The URLs that `composer install` tries for the dist of $package, in
+ * order, as FileDownloader::processUrl computes them: the dist URL and the
+ * mirrors of its repository. FileDownloader looks for the dist in its cache
+ * under the first of them.
+ *
+ * @return non-empty-list<string>
+ */
+function distUrls(\Composer\Config $config, PackageInterface $package): array
+{
+    $reference = $package->getDistReference();
+
+    return array_map(
+        static fn (string $url): string => $reference === null ? $url : Url::updateDistReference($config, $url, $reference),
+        $package->getDistUrls()
+    );
 }
 
 /**
@@ -150,7 +265,27 @@ foreach ($locker->getLockedRepository(true)->getPackages() as $package) {
     $name = $package->getPrettyName();
     $type = $package->getDistType();
     if ($type === null) {
-        fail("{$name} has no dist in composer.lock, only a {$package->getSourceType()} source. composer-purifier locks dists only.");
+        $kind = (string) $package->getSourceType();
+        $sourceUrl = $package->getSourceUrl();
+        $reference = $package->getSourceReference();
+        if ($kind === 'perforce') {
+            fail("{$name} has only a perforce source. A Perforce depot has no anonymous protocol that a fetcher could use, needs a server and credentials, and nixpkgs has no fetcher for it.");
+        }
+        if (!in_array($kind, VCS_KINDS, true) || $sourceUrl === null || $reference === null) {
+            fail("{$name} has neither a dist nor a git, hg, svn or fossil source in composer.lock.");
+        }
+        $checkout = checkoutOf($name, $kind, $sourceUrl, $reference);
+        $path = $kind . '/' . $package->getName();
+        $key = checkoutKey($kind, $checkout['url'], $checkout['rev']);
+        if (!isset($old['hashes'][$key])) {
+            $io->writeError("Fetching {$name} ({$package->getFullPrettyVersion()}) from {$sourceUrl}");
+        }
+        $artifacts[$path] = [
+            'path' => $path,
+            $kind => $checkout,
+            'hash' => $old['hashes'][$key] ?? prefetch($kind, $checkout),
+        ];
+        continue;
     }
     // A path package is installed from the project's own files.
     if ($type === 'path') {
@@ -160,22 +295,24 @@ foreach ($locker->getLockedRepository(true)->getPackages() as $package) {
         fail("{$name} has a dist of type {$type}, which Composer does not keep in its files cache.");
     }
 
-    $url = distUrl($config, $package);
+    $urls = distUrls($config, $package);
+    $url = $urls[0];
+    $mirrors = array_slice($urls, 1);
     $path = cachePath($package, $url);
     if (isset($old['hashes'][$url])) {
-        $artifacts[$path] = ['path' => $path, 'url' => $url, 'hash' => $old['hashes'][$url]];
+        $artifacts[$path] = ['path' => $path, 'url' => $url, 'mirrors' => $mirrors, 'hash' => $old['hashes'][$url]];
         continue;
     }
 
     $target = $downloadDir . '/' . count($promises);
     $io->writeError("Downloading {$name} ({$package->getFullPrettyVersion()})");
     $promises[] = $downloader->addCopy($url, $target, $package->getTransportOptions())->then(
-        function () use (&$artifacts, $package, $name, $url, $path, $target): void {
+        function () use (&$artifacts, $package, $name, $url, $mirrors, $path, $target): void {
             $sha1 = $package->getDistSha1Checksum();
             if ($sha1 !== null && $sha1 !== '' && hash_file('sha1', $target) !== $sha1) {
                 fail("the dist of {$name} from {$url} does not match the shasum in composer.lock.");
             }
-            $artifacts[$path] = ['path' => $path, 'url' => $url, 'hash' => sriSha256($target)];
+            $artifacts[$path] = ['path' => $path, 'url' => $url, 'mirrors' => $mirrors, 'hash' => sriSha256($target)];
             unlink($target);
         }
     );
