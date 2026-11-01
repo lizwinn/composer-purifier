@@ -23,6 +23,12 @@ reports a problem with a locked package. The audit follows the `audit` and
 `policy` settings of `composer.json`. `lock --no-audit` skips it. Commit
 `composer-purifier.lock.json` next to `composer.lock`.
 
+`lock` keeps the resolution that `composer.lock` records. When
+`composer.lock` is missing, `lock` stops and names `composer update`. When
+`composer.json` has changed since `composer.lock` was written, `lock` stops
+and names `composer update --lock`. `composer.lock` is written by
+Composer, or by `composer-purifier update`.
+
 The flake's overlay adds the builder `buildComposerProject` to the package
 set, where nixpkgs keeps its own builders:
 
@@ -87,8 +93,10 @@ variable to the `lockFile` it passes needs no flag.
 ## Development loop
 
 `nix develop github:nix-purifiers/composer-purifier` gives PHP, the
-`composer-purifier` command, its `composer`, and phpactor. The loop is
-Composer's own:
+`composer-purifier` command, its `composer`, and phpactor. The
+`composer-purifier` command runs Composer as a PHP library and is not a
+Composer plugin, because `lock` runs before the `vendor` directory exists.
+The loop is Composer's own:
 
 1. `composer-purifier prefetch` fetches what the lockfile names into the
    Nix store (see [Working offline](#working-offline)).
