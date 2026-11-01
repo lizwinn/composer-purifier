@@ -35,6 +35,23 @@
         "type": "github"
       }
     },
+    "composer-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1787830463,
+        "narHash": "sha256-f2IaOS8hONZpQjUhlygdHzNKPBQ7T1iMzLsFuQQKlcw=",
+        "owner": "composer",
+        "repo": "composer",
+        "rev": "f0de0bf90226853b841672f086d8b58b02332504",
+        "type": "github"
+      },
+      "original": {
+        "owner": "composer",
+        "repo": "composer",
+        "rev": "f0de0bf90226853b841672f086d8b58b02332504",
+        "type": "github"
+      }
+    },
     "flake-parts": {
       "inputs": {
         "nixpkgs-lib": [
@@ -110,6 +127,7 @@
     "root": {
       "inputs": {
         "caisson": "caisson",
+        "composer-src": "composer-src",
         "flake-parts": "flake-parts_2",
         "nixpkgs": "nixpkgs",
         "treefmt-nix": "treefmt-nix"

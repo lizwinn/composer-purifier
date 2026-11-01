@@ -12,6 +12,9 @@
 #                      from a git source, a tar archive at a URL, a path
 #                      repository inside the project and one outside it,
 #                      and runs its `check` bin
+#   real-world-composer  builds composer/composer 2.10.3, a real project
+#                      pinned in tests/dependencies, from the lockfile of
+#                      tests/projects/composer, and runs it
 #   fixture-vcs        builds tests/fixtures/vcs, whose packages come from
 #                      git, hg, svn and fossil sources, with stand-ins for
 #                      the nixpkgs fetchers that check the arguments they
@@ -58,6 +61,9 @@
 {
   pkgs,
   overlay,
+  # The source of composer/composer at its 2.10.3 release, an input of
+  # tests/dependencies.
+  composerSource,
 }:
 let
   purified = pkgs.extend overlay;
@@ -70,6 +76,12 @@ let
   command = purified.composer-purifier.composer-purifier;
 
   app = buildComposerProject { src = ./fixtures/app; };
+
+  # Composer itself, with the lockfile of tests/projects/composer.
+  realComposer = buildComposerProject {
+    src = composerSource;
+    lockFile = ./projects/composer/composer-purifier.lock.json;
+  };
 
   sources = buildComposerProject {
     src = ./fixtures/sources;
@@ -206,6 +218,21 @@ in
     test -f ${app}/share/php/composer-purifier-fixture-app/vendor/monolog/monolog/composer.json
     touch $out
   '';
+
+  # The integration check on a real project: Composer 2.10.3 builds from
+  # its own composer.lock, its `composer` bin runs, and it validates its own
+  # composer.json offline.
+  real-world-composer =
+    assert builtins.attrNames realComposer.bins == [ "composer" ];
+    runCommand "real-world-composer-check" { } ''
+      export HOME="$TMPDIR/home"
+      export COMPOSER_HOME="$TMPDIR/composer-home"
+      export COMPOSER_DISABLE_NETWORK=1
+      ${lib.getExe realComposer.bins.composer} --version | grep -q 'Composer version 2.10.3'
+      cd ${realComposer}/share/php/composer-composer
+      ${lib.getExe realComposer.bins.composer} validate --no-check-publish --no-check-lock
+      touch $out
+    '';
 
   fixture-sources = runCommand "fixture-sources-check" { } ''
     ${lib.getExe sources} > output
