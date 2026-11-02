@@ -10,7 +10,7 @@ optional next step.
 From the project root:
 
 ```zsh
-nix shell 'github:nix-purifiers/composer-purifier'
+nix shell 'github:nix-purifiers/composer-purifier#toolchain'
 composer-purifier lock
 composer-purifier prefetch
 composer install
@@ -31,7 +31,7 @@ For persistent use, add these packages through your usual Nix configuration.
 
 ## Development loop
 
-`nix develop github:nix-purifiers/composer-purifier` gives PHP, the
+`nix shell 'github:nix-purifiers/composer-purifier#toolchain'` gives PHP, the
 `composer-purifier` command, its `composer`, and phpactor. The
 `composer-purifier` command runs Composer as a PHP library and is not a
 Composer plugin, because `lock` runs before the `vendor` directory exists.

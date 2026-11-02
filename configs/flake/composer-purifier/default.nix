@@ -37,6 +37,16 @@
     { config, pkgs, ... }:
     {
       packages.default = config.packages.composer-purifier;
+      # The interactive toolchain is a package so nix shell can expose it
+      # without entering the derivation's build environment.
+      packages.toolchain = pkgs.buildEnv {
+        name = "composer-purifier-toolchain";
+        paths = [
+          config.packages.composer-purifier
+          pkgs.php
+          pkgs.phpactor
+        ];
+      };
       devShells.default = pkgs.mkShell {
         packages = [
           config.packages.composer-purifier
