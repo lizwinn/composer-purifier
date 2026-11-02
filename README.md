@@ -290,9 +290,10 @@ the Quickstart builds any project. Check out the release you want, lock it,
 and build its `composer` executable from the checkout:
 
 ```zsh
+nix shell 'github:nix-purifiers/composer-purifier#toolchain'
 git clone --branch 2.10.3 https://github.com/composer/composer
 cd composer
-nix run github:nix-purifiers/composer-purifier -- lock
+composer-purifier lock
 nix build --impure --expr 'let
   purifier = builtins.getFlake "github:nix-purifiers/composer-purifier";
   pkgs = import purifier.inputs.nixpkgs {
