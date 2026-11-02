@@ -71,7 +71,8 @@ the project or in another one:
 
 ```nix
 {
-  inputs.composer-purifier.url = "github:nix-purifiers/composer-purifier";
+  inputs.composer-purifier.url =
+    "github:nix-purifiers/composer-purifier";
   inputs.nixpkgs.follows = "composer-purifier/nixpkgs";
 
   outputs =
@@ -81,7 +82,8 @@ the project or in another one:
       pkgs =
         nixpkgs.legacyPackages.${system}.extend
           composer-purifier.overlays.default;
-      app = pkgs.composer-purifier.buildComposerProject {
+      app =
+        pkgs.composer-purifier.buildComposerProject {
         src = ./.;
       };
     in
