@@ -323,11 +323,5 @@ again.
 
 ## Credits
 
-composer-purifier follows the design of
-[sbt-purifier](https://github.com/nix-purifiers/sbt-purifier), formerly
-sbt-nix-backend: the build tool keeps planning the build, a lock run
-records every download by URL and hash, and Nix builds from that record in
-its sandbox. sbt-nix-backend took its model from nixcloud's
-[cargo (libnix)](https://github.com/nixcloud/cargo). The downloads are the
-entries of the shared [purifier](https://github.com/nix-purifiers/purifier)
-library, which fetches them and lays them out.
+The purifier idea was inspired by nixcloud's
+[cargo (libnix)](https://github.com/nixcloud/cargo).
