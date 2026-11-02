@@ -90,11 +90,16 @@ the project or in another one:
   inputs.composer-purifier.url = "github:nix-purifiers/composer-purifier";
   inputs.nixpkgs.follows = "composer-purifier/nixpkgs";
 
-  outputs = { nixpkgs, composer-purifier, ... }:
+  outputs =
+    { nixpkgs, composer-purifier, ... }:
     let
       system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system}.extend composer-purifier.overlays.default;
-      app = pkgs.composer-purifier.buildComposerProject { src = ./.; };
+      pkgs =
+        nixpkgs.legacyPackages.${system}.extend
+          composer-purifier.overlays.default;
+      app = pkgs.composer-purifier.buildComposerProject {
+        src = ./.;
+      };
     in
     {
       packages.${system} = app.packages;
@@ -153,15 +158,15 @@ For an ad hoc build, the builder can also be evaluated directly from the
 project root. Replace the example package name with one from your project:
 
 ```zsh
-nix build --impure --expr '
-  let
-    purifier = builtins.getFlake "github:nix-purifiers/composer-purifier";
-    pkgs = import purifier.inputs.nixpkgs {
-      system = builtins.currentSystem;
-      overlays = [ purifier.overlays.default ];
-    };
-  in
-  (pkgs.composer-purifier.buildComposerProject { src = ./.; }).packages.my-app'
+nix build --impure --expr 'let
+  purifier = builtins.getFlake "github:nix-purifiers/composer-purifier";
+  pkgs = import purifier.inputs.nixpkgs {
+    system = builtins.currentSystem;
+    overlays = [ purifier.overlays.default ];
+  };
+in
+(pkgs.composer-purifier.buildComposerProject { src = ./.; })
+.packages.my-app'
 ```
 
 This uses the purifier's pinned nixpkgs, matching the lock command above.
@@ -304,15 +309,15 @@ and build its `composer` executable from the checkout:
 git clone --branch 2.10.3 https://github.com/composer/composer
 cd composer
 nix run github:nix-purifiers/composer-purifier -- lock
-nix build --impure --expr '
-  let
-    purifier = builtins.getFlake "github:nix-purifiers/composer-purifier";
-    pkgs = import purifier.inputs.nixpkgs {
-      system = builtins.currentSystem;
-      overlays = [ purifier.overlays.default ];
-    };
-  in
-  (pkgs.composer-purifier.buildComposerProject { src = ./.; }).packages.composer'
+nix build --impure --expr 'let
+  purifier = builtins.getFlake "github:nix-purifiers/composer-purifier";
+  pkgs = import purifier.inputs.nixpkgs {
+    system = builtins.currentSystem;
+    overlays = [ purifier.overlays.default ];
+  };
+in
+(pkgs.composer-purifier.buildComposerProject { src = ./.; })
+.packages.composer'
 ./result/bin/composer --version
 ```
 
