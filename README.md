@@ -37,13 +37,12 @@ For persistent use, add these packages through your usual Nix configuration.
 Composer plugin, because `lock` runs before the `vendor` directory exists.
 The loop is Composer's own:
 
-1. `composer-purifier prefetch` fetches what the lockfile names into the
-   Nix store (see [Working offline](#working-offline)).
-2. `composer install` installs the project from those downloads, offline,
-   with a PHP that has the extensions the project requires.
-3. The project runs as usual: its `bin` scripts with `php`, its tests with
+1. `composer install` prepares the locked Nix cache and installs offline,
+   with a PHP that has the extensions the project requires. Run
+   `composer-purifier prefetch` ahead of time for disconnected work.
+2. The project runs as usual: its `bin` scripts with `php`, its tests with
    `composer test`.
-4. `composer-purifier update [<package>...]` updates both lockfiles in one
+3. `composer-purifier update [<package>...]` updates both lockfiles in one
    run: it runs `composer update --no-install` on the PHP that the project
    requires, for every package or only the named ones, and then
    `composer-purifier lock`. After a `composer require` or a plain
@@ -52,8 +51,27 @@ The loop is Composer's own:
    way, the hashes it already has are reused, and `composer-purifier
    prefetch` then fetches the new downloads.
 
-The next `composer install` after a change to `composer.lock` stops until
-the lockfile and the prefetch catch up, and says which command to run.
+After changing dependencies, run `composer-purifier lock`; the next install
+prepares the updated cache. Without a purifier lockfile, the wrapper warns
+and runs ordinary, impure Composer.
+
+## Dependencies from Nix projects
+
+```zsh
+composer-purifier lock --input github:example/library
+composer install
+```
+
+The selected Nix package exports `projections.composer`, a native artifact
+repository. Existing dependency constraints are bound automatically. Source
+pins go in the purifier lock; supplied packages have no artifact records in
+`composer.lock`. The wrapper regenerates those records from Nix when needed,
+including the required PHP extensions. Use the wrapper for these projects.
+
+`--refresh-inputs` advances source pins; `--no-inputs` removes them. Nix builds
+load the saved pins automatically, or accept producer packages through
+`dependencies = [ producer ];`. Packages and releases expose their own
+`projections.composer` for further composition.
 
 ## Building the project with Nix
 
@@ -254,8 +272,15 @@ as unmet, and the build fails with Composer's message. The `php` argument
 replaces the default.
 
 `composer-purifier publish <directory>` copies the `release` that Nix built
-into a directory, such as that of a Composer `artifact` repository or a
-Satis build. Packagist publishes a package from the tags of its git
+into a directory. For projects with Nix inputs, it publishes the projected
+archive closure, reusing existing files only when their bytes match. Ordinary
+Composer clients can consume the directory as an `artifact` repository.
+`--repository-url <base-url>` also writes a static `packages.json` index
+for serving that directory as a Composer repository, including for projects
+without Nix inputs. Dependencies in the exported metadata use exact
+Nix-derived versions.
+
+Packagist publishes a package from the tags of its git
 repository and takes no uploads, so for Packagist, publishing means
 pushing a tag.
 

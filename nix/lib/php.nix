@@ -14,6 +14,7 @@
   composerLock,
   # Whether the build installs the require-dev packages.
   dev,
+  extraRequirements ? [ ],
 }:
 let
   rootRequires =
@@ -21,7 +22,8 @@ let
   packages = (composerLock.packages or [ ]) ++ lib.optionals dev (composerLock.packages-dev or [ ]);
   requires =
     builtins.attrNames rootRequires
-    ++ lib.concatMap (p: builtins.attrNames (p.require or { })) packages;
+    ++ lib.concatMap (p: builtins.attrNames (p.require or { })) packages
+    ++ extraRequirements;
 
   # `ext-pdo_mysql` is the extension `pdo_mysql`. Composer names
   # extensions with lower case and either separator; nixpkgs names them

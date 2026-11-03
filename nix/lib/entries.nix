@@ -311,7 +311,9 @@ let
         hash = lock.sources.${sourceKey};
       };
 
-  packages = (composerLock.packages or [ ]) ++ (composerLock.packages-dev or [ ]);
+  packages = builtins.filter (package: (package.type or "") != "metapackage") (
+    (composerLock.packages or [ ]) ++ (composerLock.packages-dev or [ ])
+  );
 
   results = map (package: {
     inherit (package) name;

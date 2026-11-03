@@ -76,9 +76,20 @@ in
       !hasComposerLock
     ) "composer-purifier: there is no composer.lock for ${toString src}. Run `composer update`."
     ++ lock.problems
+    ++ lib.optional (
+      hasComposerLock
+      && lock.composerLockHash != null
+      &&
+        lock.composerLockHash != builtins.convertHash {
+          hash = builtins.hashFile "sha256" composerLock;
+          hashAlgo = "sha256";
+          toHashFormat = "sri";
+        }
+    ) "composer-purifier: composer.lock changed. Run `composer-purifier lock`."
     ++ derived.problems;
   # The entries by package name, and the parsed lockfiles, for the
   # builder.
   inherit (derived) byName;
   inherit composerJson lockedPackages;
+  inherit (lock) projectInputs provided providedRoots;
 }

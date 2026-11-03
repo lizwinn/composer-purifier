@@ -47,6 +47,8 @@
   runCommand,
   makeBinaryWrapper,
   callPackage,
+  python3,
+  repositoryTools ? ../../tools,
   # The `purifier` library namespace (lib.purifier of
   # github:nix-purifiers/purifier). The overlay passes the one of this
   # flake's pin.
@@ -55,6 +57,10 @@
 {
   # The root of the Composer project: the directory of composer.json.
   src,
+  dependencies ? purifier.lockedProjectInputs {
+    inputs = (builtins.fromJSON (builtins.readFile lockFile)).projectInputs or [ ];
+    system = stdenvNoCC.hostPlatform.system;
+  },
   # Replaces fetchers of the purifier library, by name (fetchurl, fetchgit,
   # fetchhg, fetchsvn, fetchfossil). Each takes the arguments of the
   # nixpkgs fetcher of its name.
@@ -107,6 +113,7 @@ let
         inherit composerJson;
         composerLock = lockedPackages;
         dev = withDev;
+        extraRequirements = lib.concatMap (input: input.repository.platformRequirements or [ ]) selected;
       };
 
   offlineLock = callPackage ./offline-lock.nix {
@@ -114,6 +121,31 @@ let
     composerLock = lockedPackages;
     inherit (cache) fetch;
     rewritePaths = true;
+    provided = locked.provided or [ ];
+  };
+
+  selected = purifier.projectInputs {
+    inherit dependencies;
+    formats = [ "composer" ];
+  };
+  platformRequirements = lib.unique (
+    builtins.filter (name: name == "php" || lib.hasPrefix "ext-" name || lib.hasPrefix "composer-" name)
+      (
+        builtins.attrNames (composerJson.require or { })
+        ++ builtins.attrNames (composerJson.require-dev or { })
+        ++ lib.concatMap (package: builtins.attrNames (package.require or { })) (
+          (lockedPackages.packages or [ ]) ++ (lockedPackages.packages-dev or [ ])
+        )
+      )
+    ++ lib.concatMap (input: input.repository.platformRequirements or [ ]) selected
+  );
+  providedRequest = builtins.toJSON {
+    roots = locked.providedRoots or { };
+    repositories = map (input: {
+      repository = toString input.repository;
+      catalog = input.repository.catalog;
+      producer = toString input.producer;
+    }) selected;
   };
 
   # The environment of every Composer run in the sandbox. Composer reads
@@ -177,6 +209,8 @@ let
       src = source;
 
       strictDeps = true;
+      inherit providedRequest;
+      passAsFile = [ "providedRequest" ];
       nativeBuildInputs = [
         projectPhp
         projectPhp.packages.composer
@@ -189,6 +223,10 @@ let
         runHook preBuild
         ${composerEnvironment}
         cp --no-preserve=mode ${offlineLock} composer.lock
+        ${lib.optionalString (dependencies != [ ]) ''
+          ${lib.getExe python3} ${repositoryTools}/composer_inputs.py . "$providedRequestPath" \
+            ${lib.getExe projectPhp} ${projectPhp.packages.composer}/share/php/composer/vendor/autoload.php
+        ''}
         composer install ${lib.escapeShellArgs installFlags}
         runHook postBuild
       '';
@@ -205,13 +243,46 @@ let
         runHook postInstall
       '';
 
-      passthru.php = projectPhp;
+      passthru = {
+        php = projectPhp;
+        inherit projections;
+      };
 
       meta = lib.optionalAttrs (bins != [ ]) { mainProgram = binName (builtins.head bins); };
     };
 
   installed = project dev;
   withDevPackages = project true;
+
+  projections.composer = import ./composer-projections.nix {
+    inherit
+      lib
+      purifier
+      runCommand
+      python3
+      composerLock
+      dependencies
+      repositoryTools
+      platformRequirements
+      ;
+    src = source;
+    composer = (phpOf true).packages.composer;
+    php = phpOf true;
+    installed = "${withDevPackages}/share/php/${pname}";
+    origins = lib.listToAttrs (
+      map (
+        package:
+        lib.nameValuePair package.name (
+          if (package.type or "") == "metapackage" then
+            builtins.hashString "sha256" (builtins.toJSON package)
+          else if entries.byName ? ${package.name} then
+            (purifier.inputIdentity (cache.fetch entries.byName.${package.name})).hash
+          else
+            "${(purifier.inputIdentity source).hash}:${package.name}"
+        )
+      ) ((lockedPackages.packages or [ ]) ++ (lockedPackages.packages-dev or [ ]))
+    );
+  };
 
   binPackages = lib.listToAttrs (
     map (
@@ -234,6 +305,7 @@ let
     in
     stdenvNoCC.mkDerivation {
       name = "${pname}-${version}.zip";
+      passthru = { inherit projections; };
       src = source;
       strictDeps = true;
       nativeBuildInputs = [
@@ -284,6 +356,7 @@ assert
     tests
     release
     cache
+    projections
     ;
   fetches = locked.entries;
   php = installed.php;

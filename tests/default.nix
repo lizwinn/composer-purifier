@@ -327,6 +327,41 @@ let
   '';
 in
 {
+  composition-native-resolver =
+    runCommand "composer-native-resolver-tests"
+      {
+        nativeBuildInputs = [
+          pkgs.python3
+          pkgs.php
+          pkgs.php.packages.composer
+        ];
+        COMPOSER_REPOSITORY_TOOLS = ../tools;
+        COMPOSER_REPOSITORY_SCRIPTS = ../src;
+      }
+      ''
+        python3 ${./test_composer_repository.py} ${lib.getExe pkgs.php.packages.composer} \
+          ${lib.getExe pkgs.php} ${pkgs.php.packages.composer}/share/php/composer/vendor/autoload.php
+        touch "$out"
+      '';
+  composition-native-export = import ./composition-export.nix {
+    inherit pkgs;
+    project = purified.composer-purifier.buildComposerProject { src = ./fixtures/app; };
+    alternate = purified.composer-purifier.buildComposerProject {
+      src = ./fixtures/app;
+      php = pkgs.php.withExtensions (
+        { enabled, all }:
+        enabled
+        ++ [
+          all.bz2
+          all.ffi
+        ]
+      );
+    };
+  };
+  composition-metapackage = import ./composition-export.nix {
+    inherit pkgs;
+    project = purified.composer-purifier.buildComposerProject { src = ./fixtures/composition-meta; };
+  };
   # tests/fixtures/stale/composer.lock is the composer.lock of the app
   # fixture after an update that its lockfile has not seen.
   conformance-stale =
@@ -340,8 +375,8 @@ in
         cp ${./fixtures/stale/composer.lock} composer.lock
         prefetchFails composer-purifier.lock.json 'has no hash for the dist of monolog/monolog'
         grep -qF 'Run `composer-purifier lock`.' error
-        # A composer.lock that changes after a prefetch stops the offline
-        # install, which names both commands.
+        # Automatic prefetch must reject a changed native lock before install
+        # and name the command that refreshes its captured hashes.
         cp ${./fixtures/app/composer.lock} composer.lock
         composer-purifier prefetch
         cp ${./fixtures/stale/composer.lock} composer.lock
@@ -351,7 +386,6 @@ in
         fi
         cat error
         grep -qF 'Run `composer-purifier lock`.' error
-        grep -qF 'composer-purifier prefetch' error
         touch $out
       '';
 

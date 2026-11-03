@@ -33,6 +33,7 @@
   # Whether to rewrite `path` dists outside the project directory. An
   # install outside Nix reads them from the file system as they are.
   rewritePaths,
+  provided ? [ ],
 }:
 let
   outsideProject = url: lib.hasPrefix "../" url || lib.hasPrefix "/" url;
@@ -52,7 +53,11 @@ let
     let
       dist = package.dist or null;
     in
-    if dist == null then
+    if (package.type or "") == "metapackage" then
+      package
+    else if builtins.any (entry: entry.name == package.name) provided then
+      copied package dist
+    else if dist == null then
       copied package {
         type = "path";
         url = "${fetch entries.byName.${package.name}}";

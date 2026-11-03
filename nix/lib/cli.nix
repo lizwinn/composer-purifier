@@ -27,6 +27,9 @@
   projectDir,
   lockFile ? "",
   toolLockFile ? "",
+  additionalPackages ? [ ],
+  additionalPackagesJson ? null,
+  repositoryTools ? null,
 }:
 let
   pkgs = import nixpkgs { inherit system; };
@@ -34,6 +37,17 @@ let
   dir = /. + projectDir;
   lockPath = if lockFile == "" then dir + "/composer-purifier.lock.json" else /. + lockFile;
   composerLockPath = if toolLockFile == "" then dir + "/composer.lock" else /. + toolLockFile;
+  selected = library.projectInputs {
+    dependencies = library.lockedProjectInputs {
+      inputs =
+        if additionalPackagesJson != null || !builtins.pathExists lockPath then
+          [ ]
+        else
+          (builtins.fromJSON (builtins.readFile lockPath)).projectInputs or [ ];
+      inherit system;
+    };
+    formats = [ "composer" ];
+  };
   locked = library.checkLock (
     import ./read-lock.nix { inherit (pkgs) lib; } {
       src = dir;
@@ -47,11 +61,31 @@ let
   php = pkgs.callPackage ./php.nix {
     composerJson = builtins.fromJSON (builtins.readFile (dir + "/composer.json"));
     composerLock =
-      if builtins.pathExists composerLockPath then
-        builtins.fromJSON (builtins.readFile composerLockPath)
-      else
-        { };
+      (
+        if builtins.pathExists composerLockPath then
+          builtins.fromJSON (builtins.readFile composerLockPath)
+        else
+          { }
+      )
+      // {
+        packages =
+          (
+            if additionalPackagesJson == null then
+              additionalPackages
+            else
+              builtins.fromJSON additionalPackagesJson
+          )
+          ++ (
+            if builtins.pathExists composerLockPath then
+              (builtins.fromJSON (builtins.readFile composerLockPath)).packages or [ ]
+            else
+              [ ]
+          );
+      };
     dev = true;
+    extraRequirements = pkgs.lib.concatMap (
+      input: input.repository.platformRequirements or [ ]
+    ) selected;
   };
   cache = pkgs.callPackage ./cache.nix {
     entries = {
@@ -60,20 +94,65 @@ let
     };
     purifier = library;
   };
-  build = pkgs.callPackage ./build-composer-project.nix { purifier = library; };
-in
-{
-  inherit cache;
-  composer = php.packages.composer;
-  offlineLock = pkgs.callPackage ./offline-lock.nix {
+  build = pkgs.callPackage ./build-composer-project.nix (
+    {
+      purifier = library;
+    }
+    // pkgs.lib.optionalAttrs (repositoryTools != null) { repositoryTools = /. + repositoryTools; }
+  );
+  baseOfflineLock = pkgs.callPackage ./offline-lock.nix {
     composerLock = locked.lockedPackages;
     inherit (cache) entries fetch;
     rewritePaths = false;
+    provided = locked.provided or [ ];
   };
+  providedRequest = builtins.toJSON {
+    roots = locked.providedRoots or { };
+    repositories = map (input: {
+      repository = toString input.repository;
+      catalog = input.repository.catalog;
+      producer = toString input.producer;
+    }) selected;
+  };
+in
+{
+  inherit cache;
+  nativeTools = pkgs.linkFarm "composer-project-native-tools" {
+    inherit php;
+    composer = php.packages.composer;
+  };
+  composer = php.packages.composer;
+  offlineLock =
+    if selected == [ ] then
+      baseOfflineLock
+    else
+      pkgs.runCommand "composer-native-lock"
+        {
+          inherit providedRequest;
+          passAsFile = [ "providedRequest" ];
+          manifest = builtins.toFile "composer.json" (builtins.readFile (dir + "/composer.json"));
+        }
+        ''
+          export HOME="$TMPDIR/home"
+          export COMPOSER_HOME="$TMPDIR/composer-home"
+          cp --no-preserve=mode "$manifest" composer.json
+          cp --no-preserve=mode ${baseOfflineLock} composer.lock
+          ${pkgs.lib.getExe pkgs.python3} ${
+            if repositoryTools == null then ../../tools else /. + repositoryTools
+          }/composer_inputs.py \
+            . "$providedRequestPath" ${pkgs.lib.getExe php} ${php.packages.composer}/share/php/composer/vendor/autoload.php
+          cp composer.lock "$out"
+        '';
   release =
     (build {
       src = dir;
       lockFile = lockPath;
       composerLock = composerLockPath;
     }).release;
+  repository =
+    (build {
+      src = dir;
+      lockFile = lockPath;
+      composerLock = composerLockPath;
+    }).projections.composer;
 }

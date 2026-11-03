@@ -7,13 +7,42 @@ name: check
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
 
 permissions:
   contents: read
 
 jobs:
+  composition:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            sandbox = true
+            netrc-file = /etc/nix/netrc
+      - name: Authenticate fixed GitHub archive downloads
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf 'machine api.github.com\nlogin x-access-token\npassword %s\n' "$GITHUB_TOKEN" \
+            | sudo tee /etc/nix/netrc > /dev/null
+          sudo chmod 600 /etc/nix/netrc
+      - name: Build the Composer integration
+        run: nix build --out-link "$RUNNER_TEMP/composer-tools"
+      - name: Compose, edit, build, publish, and consume with ordinary Composer
+        run: |
+          nix shell 'nixpkgs#python3' -c \
+            python3 tests/composition-native.py "$RUNNER_TEMP/composer-tools"
+
   check:
     strategy:
       fail-fast: false

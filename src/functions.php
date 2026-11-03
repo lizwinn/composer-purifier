@@ -263,6 +263,9 @@ function hashCheckout(string $kind, array $checkout): string
  */
 function neededHash(array $package): ?array
 {
+    if (($package['type'] ?? null) === 'metapackage') {
+        return null;
+    }
     $name = (string) ($package['name'] ?? '');
     $dist = $package['dist'] ?? null;
     if (is_array($dist)) {
@@ -318,6 +321,9 @@ function checkLock(string $lockText, string $composerLockText): void
     $composerLock = json_decode($composerLockText, true);
     if (!is_array($composerLock)) {
         throw new PurifierException('composer.lock is not valid JSON. Run `composer update --lock`.');
+    }
+    if (isset($lock['composerLock']) && $lock['composerLock'] !== 'sha256-' . base64_encode(hash('sha256', $composerLockText, true))) {
+        throw new PurifierException('composer.lock changed. Run `composer-purifier lock` and `composer-purifier prefetch`.');
     }
     foreach (array_merge($composerLock['packages'] ?? [], $composerLock['packages-dev'] ?? []) as $package) {
         $needed = neededHash($package);
