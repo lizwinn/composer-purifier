@@ -100,7 +100,7 @@ try {
     $promises = [];
     $downloads = 0;
     foreach ($locker->getLockedRepository(true)->getPackages() as $package) {
-        if ($package instanceof AliasPackage) {
+        if ($package instanceof AliasPackage || $package->getType() === 'metapackage') {
             continue;
         }
         $name = $package->getPrettyName();

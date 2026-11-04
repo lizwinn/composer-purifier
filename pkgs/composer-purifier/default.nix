@@ -34,6 +34,7 @@
   symlinkJoin,
   writeShellApplication,
   php,
+  python3,
   # The source directory of the purifier library, whose fetches the
   # nix-build calls of the commands import. The default package overlay
   # gives it from the `purifier` input of this flake.
@@ -49,6 +50,7 @@ let
     --argstr nixpkgs ${path} \
     --argstr purifier ${purifierSource} \
     --argstr system ${stdenv.hostPlatform.system}'';
+  cliArguments = nixArguments + " --argstr repositoryTools ${../../tools}";
 
   hashCheckout = writeShellApplication {
     name = "composer-purifier-hash-checkout";
@@ -76,8 +78,23 @@ let
   # The contentHash of the lockfile at "$lockFile".
   lockHash = ''php ${scripts}/lock-hash.php "$lockFile"'';
 
-  purifierCommand = writeShellApplication {
-    name = "composer-purifier";
+  compositionEnvironment = ''
+    export PYTHONPATH="${purifierSource}/tools"
+    export COMPOSER_PURIFIER_PHP=${lib.getExe php}
+    export COMPOSER_PURIFIER_AUTOLOAD=${defaultComposer}/share/php/composer/vendor/autoload.php
+    export COMPOSER_PURIFIER_LEGACY_COMMAND=${lib.getExe legacyCommand}
+    export COMPOSER_PURIFIER_NIX_LIB=${nixLib}
+    export COMPOSER_PURIFIER_NIXPKGS=${path}
+    export COMPOSER_PURIFIER_SHARED=${purifierSource}
+    export COMPOSER_PURIFIER_SYSTEM=${stdenv.hostPlatform.system}
+    export COMPOSER_PURIFIER_SCRIPTS=${scripts}
+    export COMPOSER_PURIFIER_REAL_COMPOSER=${lib.getExe defaultComposer}
+    export COMPOSER_PURIFIER_LEGACY_COMPOSER=${lib.getExe legacyComposerCommand}
+    export COMPOSER_PURIFIER_REPOSITORY_TOOLS=${../../tools}
+  '';
+
+  legacyCommand = writeShellApplication {
+    name = "composer-purifier-legacy";
     runtimeInputs = [
       php
       defaultComposer
@@ -180,7 +197,7 @@ let
           if [ -n "''${COMPOSER_PURIFIER_COMPOSER:-}" ]; then
             projectComposer="$COMPOSER_PURIFIER_COMPOSER"
           else
-            projectComposer="$(nix-build ${nixLib}/cli.nix ${nixArguments} \
+            projectComposer="$(nix-build ${nixLib}/cli.nix ${cliArguments} \
               --attr composer \
               --argstr projectDir "$PWD" \
               --argstr lockFile "$lockFile" \
@@ -209,7 +226,7 @@ let
             ln -sfn "$COMPOSER_PURIFIER_OFFLINE_LOCK" "$roots/offlineLock"
           else
             for attribute in cache composer offlineLock; do
-              nix-build ${nixLib}/cli.nix ${nixArguments} \
+              nix-build ${nixLib}/cli.nix ${cliArguments} \
                 --attr "$attribute" \
                 --argstr projectDir "$PWD" \
                 --argstr lockFile "$lockFile" \
@@ -224,7 +241,7 @@ let
           ;;
         publish)
           [ ''${#operands[@]} -eq 1 ] || usage
-          release="$(nix-build ${nixLib}/cli.nix ${nixArguments} \
+          release="$(nix-build ${nixLib}/cli.nix ${cliArguments} \
             --attr release \
             --argstr projectDir "$PWD" \
             --argstr lockFile "$lockFile" \
@@ -241,8 +258,22 @@ let
     '';
   };
 
-  composerCommand = writeShellApplication {
-    name = "composer";
+  purifierCommand = writeShellApplication {
+    name = "composer-purifier";
+    runtimeInputs = [
+      python3
+      php
+      defaultComposer
+      coreutils
+    ];
+    text = ''
+      ${compositionEnvironment}
+      exec ${lib.getExe python3} ${../../tools}/composer_cli.py "$@"
+    '';
+  };
+
+  legacyComposerCommand = writeShellApplication {
+    name = "composer-purifier-legacy-composer";
     runtimeInputs = [
       php
       coreutils
@@ -287,6 +318,19 @@ let
       # an offline install cannot reach; `lock` runs the audit instead.
       export COMPOSER_POLICY=0
       exec "$projectComposer/bin/composer" "$@"
+    '';
+  };
+  composerCommand = writeShellApplication {
+    name = "composer";
+    runtimeInputs = [
+      python3
+      php
+      defaultComposer
+      coreutils
+    ];
+    text = ''
+      ${compositionEnvironment}
+      exec ${lib.getExe python3} ${../../tools}/composer_runtime.py "$@"
     '';
   };
 in

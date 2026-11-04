@@ -62,4 +62,8 @@ in
   dists = if problem == null then lock.dists else { };
   sources = if problem == null then lock.sources else { };
   inherit file;
+  projectInputs = lock.projectInputs or [ ];
+  provided = lock.provided or [ ];
+  composerLockHash = lock.composerLock or null;
+  providedRoots = lock.providedRoots or { };
 }

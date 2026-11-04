@@ -1,0 +1,25 @@
+{
+  "name": "proof/meta-consumer",
+  "description": "A Composer project for the composer-purifier tests",
+  "type": "project",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.2",
+    "ext-bz2": "*",
+    "proof/meta": "1.0.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "Fixture\\": "src/"
+    }
+  },
+  "bin": [
+    "bin/hello"
+  ],
+  "scripts": {
+    "post-install-cmd": [
+      "@php -r \"file_put_contents('installed-by-script', 'yes');\""
+    ],
+    "test": "@php tests/greeting-test.php"
+  }
+}
